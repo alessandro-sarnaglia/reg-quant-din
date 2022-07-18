@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="" xml:lang="">
+  <head>
+    <title>Regressão Quantílica Dinâmica</title>
+    <meta charset="utf-8" />
+    <meta name="author" content="Alessandro J. Q. Sarnaglia" />
+    <script src="libs/header-attrs-2.14/header-attrs.js"></script>
+    <link href="libs/remark-css-0.0.1/default.css" rel="stylesheet" />
+    <link href="libs/remark-css-0.0.1/default-fonts.css" rel="stylesheet" />
+    <script src="libs/htmlwidgets-1.5.3/htmlwidgets.js"></script>
+    <link href="libs/datatables-css-0.0.0/datatables-crosstalk.css" rel="stylesheet" />
+    <script src="libs/datatables-binding-0.23/datatables.js"></script>
+    <script src="libs/jquery-3.6.0/jquery-3.6.0.min.js"></script>
+    <link href="libs/dt-core-1.11.3/css/jquery.dataTables.min.css" rel="stylesheet" />
+    <link href="libs/dt-core-1.11.3/css/jquery.dataTables.extra.css" rel="stylesheet" />
+    <script src="libs/dt-core-1.11.3/js/jquery.dataTables.min.js"></script>
+    <link href="libs/crosstalk-1.1.1/css/crosstalk.css" rel="stylesheet" />
+    <script src="libs/crosstalk-1.1.1/js/crosstalk.min.js"></script>
+    <script src="libs/kePrint-0.0.1/kePrint.js"></script>
+    <link href="libs/lightable-0.0.1/lightable.css" rel="stylesheet" />
+  </head>
+  <body>
+    <textarea id="source">
+class: left, bottom, inverse, title-slide
+
+.title[
+# Regressão Quantílica Dinâmica
+]
+.subtitle[
+## Abordagem bayesiana utilizando JAGS
+]
+.author[
+### Alessandro J. Q. Sarnaglia
+]
+.institute[
+### DEST/UFES
+]
+
+---
+
+
+&lt;style&gt;
+body {
+text-align: justify}
+&lt;/style&gt;
+
+
+
+
+
+&lt;script type="text/x-mathjax-config"&gt;
+MathJax.Hub.Config({
+  TeX: {
+    Macros: {
+      XX: "{\\mathbf{X}}",
+      xx: "{\\mathbf{x}}",
+      ag: "{\\mathrm{argmax}}"
+    }
+  }
+});
+&lt;/script&gt;
+
+# Inferência Bayesiana
+
+- Observações: `\(\XX = (X_1, \ldots, X_n)\)`;
+
+- Vetor de parâmetros: `\(\theta = (\theta_1, \ldots, \theta_p)\)`;
+
+- Verossimilhança: `\(f(\xx | \theta) = f(x_1, \ldots, x_n | \theta)\)` vista como função de `\(\theta\)`.
+
+**Frequentista:** em geral, máxima verossimilhança, isto é `\(\hat\theta = \ag_\theta f(\xx | \theta)\)`. Comumente, fazemos:
+$$
+\left. \frac{\partial}{\partial \theta} f(\xx | \theta) \right|_{\theta = \hat\theta} = 0.
+$$
+
+**Bayesiana:** a incerteza inicial sobre `\(\theta\)` é modelada por uma distribuição *a priori* `\(\pi(\theta)\)`. A informação dos dados `\(\XX\)` é utilizada para atualizar o conhecimento sobre `\(\theta\)` por meio da regra de Bayes:
+$$
+\pi(\theta | \xx) = \frac{f(\xx | \theta) \pi(\theta)}{\int f(\xx | \theta) \pi(\theta) d\theta} = \frac{f(\xx | \theta) \pi(\theta)}{f(\xx)} \propto f(\xx | \theta) \pi(\theta).
+$$
+Denominamos `\(\pi(\theta | \xx)\)` de distribuição *a posteriori*.
+
+---
+# Monte Carlo via Cadeia de Markov - MCMC
+
+Mecanismo para amostrar da distribuição de `\(\theta|\xx\)`. Em poucas palavras:
+- Algoritmos que consistem de gerar trajetórias de cadeia de Markov (ao contrário de amostras iid);
+- As cadeias devem possuir distribuição de equilíbrio que coincide com a distribuição da qual queremos gerar valores, isto é, `\(\pi(\theta | \xx)\)`;
+- A amostra gerada `\(\theta_1, \ldots, \theta_m\)` é utilizada para realizar inferência sobre `\(\theta\)`.
+
+*Vantagem:* é um método que funciona em condições bem gerais, não sendo necessário conhecer `\(\pi(\theta| \xx)\)` em sua integralidade.
+
+*Desvantagem:* em geral, é computacionalmente custoso.
+
+Existem vários algoritmos MCMC: Metropolis-Hasting; Slice sampling; Multiple-try Metropolis; Reversible-jump; Hamiltonian; entre outros.
+
+Algumas linguagens implementam esses métodos (`STAN` e `JAGS`, por exemplo). Alguns pacotes do `R` promovem a interface. Por exemplo, `rstan`, `rjags` e `R2jags`.
+
+---
+# Just Another Gibbs Sampler - JAGS
+
+É uma linguagem para a análise de Modelos Hierárquicos Bayesianos usando MCMC.
+
+JAGS foi concebido com três objetivos em mente:
+- Ter um mecanismos de plataforma cruzada para a linguagem `BUGS`;
+- Pode ser estendido, permitindo usuários escreverem suas próprias funções, distribuições e amostradores;
+- Ser uma plataforma para experimentação com ideias em modelagem bayesiana.
+
+Para modelar em JAGS, tudo que você precisa fazer é escrever a verossimilhança e as distribuições *a priori* em um arquivo de texto.
+
+Ao submeter o código ao JAGS, ele roda o MCMC e produz a amostra da distribuição *a posteriori* desejada.
+
+---
+## Exemplo 1 - JAGS
+
+Exemplo de código em JAGS para o seguinte modelo:
+$$
+X_i|\mu,\sigma^2 \sim N(\mu,\sigma^2), \ i=1, \ldots, n;
+$$
+$$
+\mu \sim N(\xi,\omega^2); \ \sigma^2 \sim G(\alpha,\beta).
+$$
+
+
+```r
+model{
+  # verossimilhanca
+  for(i in 1:n){
+    x[i] ~ dnorm(mu, 1/sqrt(sig2)) # a parametrizacao é em funcao da precisão (1/DP)
+  }
+  # dist.'s a priori
+  mu ~ dnorm(xi, 1/sqrt(omega2)) # xi, omega2 hiperparametros
+  sig2 ~ dgamma(alpha, beta) # alpha, beta hiperparametros
+}
+```
+
+---
+## Exemplo 2 - JAGS
+
+Exemplo de código em JAGS para o seguinte modelo de regressão:
+
+`$$Y_i|\theta,\sigma^2 \sim N(\mu_i,\sigma^2), \ \mu_i = X_i'\theta, \ X_i = (X_{i1}, \ldots, X_{ip})', \ i=1, \ldots, n;$$`
+`$$\theta = (\theta_1, \ldots, \theta_p)' \sim N_p(\xi,\text{diag}(\omega^2)); \ \sigma^2 \sim G(\alpha,\beta).$$`
+
+```r
+model{
+  # verossimilhanca
+  for(i in 1:n){
+    y[i] ~ dnorm(mu[i], 1/sqrt(sig2)) # a parametrizacao é em funcao da precisão
+    mu[i] &lt;- t(theta) %*% x[i,] # repare que em vez de ~ usamos &lt;-
+  }
+  # dist.'s a priori
+  for(j in 1:p){
+    theta[j] ~ dnorm(xi[j], 1/sqrt(omega2)) # xi, omega2 hiperparametros
+  }
+  sig2 ~ dgamma(alpha, beta) # alpha, beta hiperparametros
+}
+```
+
+---
+## R2jags
+
+Os códigos anteriores especificam o modelo na linguagem JAGS. Precisamos efetivamente rodar o modelo.
+
+*Pergunta:* como rodar o modelo em `R`?
+
+Podemos utilizar o pacote `R2jags`. Vejamos uma forma bem básica para o Exemplo 2 visto anteriormente.
+
+
+```r
+library(R2jags)
+n &lt;- dim(x)[1]; p &lt;- dim(x)[2]
+xi &lt;- rep(0, p)
+jags.data &lt;- list(y = y, x = x, n = n, p = p,
+                  xi = xi, omega2 = 10000, #hiperparâmetros
+                  alpha = 0.1, beta = 0.1) #hiperparâmetros
+jags.params &lt;- c("theta", "sigma2")
+jagsfit &lt;- jags(data = jags.data, parameters.to.save = jags.params,
+                n.iter = 5000, model.file = "jags_model.txt")
+```
+
+- O arquivo `jags_model.txt` contém o modelo am JAGS salvo no computador;
+- O objeto `jagsfit` conterá vários elementos, entre eles a amostra da distribuição *a posteriori* `\(\pi(\theta,\sigma^2 | \mathbf{y}, \mathbf{x}),\)` disponível nos elementos `sims.matrix` ou `sims.array`, dentro do elemento `BUGSoutput`.
+
+---
+class: middle, center
+
+## Exemplo com a turma
+
+Vamos coletar altura (explicativa) e peso (resposta). Vamos usar o JAGS para implementar um regressão linear simples nesse contexto.
+
+---
+# Regressão Quantílica - I
+
+O quantil de ordem `\(\tau\)` de uma variável aleatória `\(Y\)` com função de distribuição acumulada `\(F(y) = P(Y \leq y)\)` é definida como
+`$$Q_\tau(Y) = F^{-1}(\tau) = \inf\{y|F(y) \geq \tau\}.$$`
+Em regressão quantílica, em vez do modelo `\(E(Y_i|X_i, \theta) = X_i'\theta\)`, é considerado
+`$$Q_\tau(Y_i|X_i, \theta) = X_i'\theta^{(\tau)},\ 0 &lt; \tau &lt; 1,$$`
+onde  `\(\theta^{(\tau)} = (\theta^{(\tau)}_1, \ldots, \theta^{(\tau)}_p)'\)` é um vetor de coeficientes que depende de `\(\tau\)`.
+
+Considere a função perda `\(\rho_\tau (u) = u(\tau - \mathbb{I}(u &lt; 0))\)`. Koenker (2005) mostrou que o valor que minimiza a perda esperada `\(E_F(\rho_\tau (Y - q)\)` satisfaz `\(F(q) = \tau\)`, ou ainda `\(q = Q_\tau(Y)\)`.
+
+De maneira similar, o quantil amostral `\(\hat{q}\)` é obtido minimizando-se a perda média `\(\frac{1}{n}\sum_{i=1}^n(\rho_\tau (Y_i - \hat{q}))\)`. Assim, a regressão quantílica é estimada pela solução do seguinte problema de minimização
+`$$\textstyle\hat\theta^{(\tau)} = \text{arg}\min_\theta \left[\frac{1}{n}\sum_{i = 1}^n \rho_\tau(y_i - X_i'\theta)\right].$$`
+---
+# Regressão Quantílica - II
+Yu and Moyeed (2001) mostraram que o problema de minimização visto anteriormente é exatamente equivalente à maximização de uma verossimilhança associada a distribuição Laplace assimétrica.
+
+Dizemos que `\(Z\)` tem distribuição Laplace assimétrica com parâmetro `\(\tau\)` se sua densidade é dada por
+`$$f_Z(z) = \tau(1-\tau)\exp\{-\rho_\tau(z)\}.$$`
+Nesse caso, escrevemos `\(Z \sim LA(\tau)\)`. Parâmetros de locação `\(\mu\)` e escala `\(\sigma\)` podem ser introduzidos fazendo `\(Z = \frac{Y-\mu}{\sigma}\)`, de modo que `\(f_Y(y) = \frac{1}{\sigma}f_Z(\frac{y-\mu}{\sigma})\)`. Nesse caso, escrevemos `\(Y \sim LA(\mu,\sigma,\tau)\)`.
+
+Assim, no contexto Bayesiano, o modelo de regressão quantílica pode ser especificado como
+`$$Y_i|X_i,\theta^{(\tau)} \sim LA(\mu = X_i'\theta^{(\tau)}, \sigma = 1, \tau = \tau),\ \ \theta^{(\tau)} \sim \pi(\cdot).$$`
+**Problema:** a implementação em JAGS não é direta por não se ter a distribuição Laplace Assimétrica implementada.
+
+Felizmente, a seguinte propriedade permite contornar esse problema.
+
+---
+# Regressão Quantílica - III
+
+**Propriedade:** (Kotz, Kozubowski, and Podgórski, 2001) é possível mostrar que, se `\(Y|\mu,\sigma \sim LA(\mu, \sigma, \tau)\)`, então podemos escrever hierarquicamente:
+`$$Y|U,\mu,\sigma \sim N(\mu + a_\tau U, b_\tau \sigma U)\ \ \text{e}\ \ U|\sigma \sim G(1, \sigma),$$`
+onde `\(a_\tau = \frac{1-2\tau}{\tau(1-\tau)}\)` e `\(b_\tau = \frac{2}{\tau(1-\tau)}\)`, e `\(G(\alpha, \beta)\)` denota a densidade gama com esperança `\(\frac{\alpha}{\beta}\)` e variância `\(\frac{\alpha}{\beta^2}\)`.
+
+Assim, o modelo de regressão quantílica ficaria totalmente especificado com a seguinte estrutura hierárquica:
+
+`$$Y_i|U_i,\mu_i \sim N(\mu_i + a_\tau U_i, b_\tau U_i), \ \ \mu_i = X_i'\theta^{(\tau)},$$`
+`$$U_i \sim G(1, 1) \ \ \text{e} \ \ \theta^{(\tau)} \sim \pi(\cdot).$$`
+Uma escolha natural para a `\(\pi(\cdot)\)` é dada pela distribuição `\(N_p\)`.
+
+---
+# Regressão Quantílica - IV
+
+O código JAGS abaixo define o modelo de regressão quantílica.
+
+
+```r
+model{
+  # verossimilhança
+  for(i in 1:n){
+    y[i] ~ dnorm(mu[i] + a_tau*u[i], 1/sqrt(b_tau*u[i])) # DP em vez de Var
+    u[i] ~ dgamma(1,1)
+    mu[i] &lt;- x[i,] %*% theta_tau
+  }
+  a_tau &lt;- (1-2*tau)/(tau*(1-tau))
+  b_tau &lt;- 2/(tau*(1-tau))
+  # dist's a priori
+  for(j in 1:p){
+    theta_tau[j] ~ dnorm(xi[j], 1/sqrt(omega2)) # xi, omega2 hiperparametros
+  }
+}
+```
+Os objetos `n`, `p`, `tau`, `xi` e `omega2` devem ser fornecidos pelo parâmetro `data` da função `jags`.
+
+---
+class: middle, center
+
+## Exemplo com a turma
+
+Vamos retornar ao exemplo da altura (explicativa) e do peso (resposta) dos alunos da turma. Vamos usar o JAGS para implementar a regressão quantílica nesse contexto.
+
+---
+# Regressão Quantílica Dinâmica - I
+
+Se os dados `\(Y_t\)` e `\(X_t\)` são observados em função do tempo `\(t\)`. É provável que o processo de amostragem sistemática naturalmente induza a presença de dependência temporal.
+
+**Desafio:** A regressão quantílica é desenvolvida para dados iid. Como estender para dados com dependência temporal?
+
+**Solução:**
+- Permitir que os coeficientes evoluam com o tempo, isto é, que `\(\theta^{(\tau)}_t\)`.
+- Mecanismo de evolução de `\(\theta^{(\tau)}_t\)` dado por
+`$$\theta^{(\tau)}_t|\theta^{(\tau)}_{t-1},G_t,W_t \sim N_p(G_t\theta^{(\tau)}_{t-1}, W_t),$$`
+em que `\(G_t\)` é uma matriz `\(p\times p\)` descrevendo os parâmetros de evolução e `\(W_t\)` é uma matriz de covariâncias.
+
+Para maiores detalhes sobre a descrição do modelo, veja Gonçalves, Migon, and Bastos (2020).
+
+---
+# Regressão Quantílica Dinâmica - II
+Código JAGS:
+
+```r
+model{
+  # verossimilhança
+  for(i in 1:n){
+    y[i] ~ dnorm(mu[i] + a_tau*u[i], 1/sqrt(b_tau*u[i])) # Precision em vez de Var
+    u[i] ~ dgamma(1,1)
+    mu[i] &lt;- x[i,] %*% theta_tau[i,]
+  }
+  a_tau &lt;- (1-2*tau)/(tau*(1-tau))
+  b_tau &lt;- 2/(tau*(1-tau))
+  # dist's a priori
+  for(j in 1:p){
+    theta_tau[1,j] ~ dnorm(xi[j], 1/sqrt(omega2)) # xi, omega2 hiperparametros
+    for (i in 2:n) {
+      theta_tau[i,j] ~ dnorm(theta_tau[i-1,j], 1600) # xi, omega2 hiperparametros
+    }
+  }
+}
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+
+Considere os dados de Barril de Petróleo Brent (Fechamento) e Petr4 (Abertura).
+
+
+```r
+df &lt;- read.csv(file = 'dados.csv', header = T, dec = ',')
+DT::datatable(df, rownames = FALSE, options = list(pageLength = 5, autoWidth = TRUE, lengthChange = FALSE, searching=FALSE))
+```
+
+<div id="htmlwidget-2c54cce9454a36755002" style="width:100%;height:auto;" class="datatables html-widget"></div>
+<script type="application/json" data-for="htmlwidget-2c54cce9454a36755002">{"x":{"filter":"none","vertical":false,"data":[["04.01.2021","05.01.2021","06.01.2021","07.01.2021","08.01.2021","11.01.2021","12.01.2021","13.01.2021","14.01.2021","15.01.2021","18.01.2021","19.01.2021","20.01.2021","21.01.2021","22.01.2021","25.01.2021","26.01.2021","27.01.2021","28.01.2021","29.01.2021","01.02.2021","02.02.2021","03.02.2021","04.02.2021","05.02.2021","08.02.2021","09.02.2021","10.02.2021","11.02.2021","12.02.2021","15.02.2021","16.02.2021","17.02.2021","18.02.2021","19.02.2021","22.02.2021","23.02.2021","24.02.2021","25.02.2021","26.02.2021","01.03.2021","02.03.2021","03.03.2021","04.03.2021","05.03.2021","08.03.2021","09.03.2021","10.03.2021","11.03.2021","12.03.2021","15.03.2021","16.03.2021","17.03.2021","18.03.2021","19.03.2021","22.03.2021","23.03.2021","24.03.2021","25.03.2021","26.03.2021","29.03.2021","30.03.2021","31.03.2021","01.04.2021","05.04.2021","06.04.2021","07.04.2021","08.04.2021","09.04.2021","12.04.2021","13.04.2021","14.04.2021","15.04.2021","16.04.2021","19.04.2021","20.04.2021","21.04.2021","22.04.2021","23.04.2021","26.04.2021","27.04.2021","28.04.2021","29.04.2021","30.04.2021","03.05.2021","04.05.2021","05.05.2021","06.05.2021","07.05.2021","10.05.2021","11.05.2021","12.05.2021","13.05.2021","14.05.2021","17.05.2021","18.05.2021","19.05.2021","20.05.2021","21.05.2021","24.05.2021","25.05.2021","26.05.2021","27.05.2021","28.05.2021","31.05.2021","01.06.2021","02.06.2021","03.06.2021","04.06.2021","07.06.2021","08.06.2021","09.06.2021","10.06.2021","11.06.2021","14.06.2021","15.06.2021","16.06.2021","17.06.2021","18.06.2021","21.06.2021","22.06.2021","23.06.2021","24.06.2021","25.06.2021","28.06.2021","29.06.2021","30.06.2021","01.07.2021","02.07.2021","05.07.2021","06.07.2021","07.07.2021","08.07.2021","09.07.2021","12.07.2021","13.07.2021","14.07.2021","15.07.2021","16.07.2021","19.07.2021","20.07.2021","21.07.2021","22.07.2021","23.07.2021","26.07.2021","27.07.2021","28.07.2021","29.07.2021","30.07.2021","02.08.2021","03.08.2021","04.08.2021","05.08.2021","06.08.2021","09.08.2021","10.08.2021","11.08.2021","12.08.2021","13.08.2021","16.08.2021","17.08.2021","18.08.2021","19.08.2021","20.08.2021","23.08.2021","24.08.2021","25.08.2021","26.08.2021","27.08.2021","30.08.2021","31.08.2021","01.09.2021","02.09.2021","03.09.2021","06.09.2021","07.09.2021","08.09.2021","09.09.2021","10.09.2021","13.09.2021","14.09.2021","15.09.2021","16.09.2021","17.09.2021","20.09.2021","21.09.2021","22.09.2021","23.09.2021","24.09.2021","27.09.2021","28.09.2021","29.09.2021","30.09.2021","01.10.2021","04.10.2021","05.10.2021","06.10.2021","07.10.2021","08.10.2021","11.10.2021","12.10.2021","13.10.2021","14.10.2021","15.10.2021","18.10.2021","19.10.2021","20.10.2021","21.10.2021","22.10.2021","25.10.2021","26.10.2021","27.10.2021","28.10.2021","29.10.2021","01.11.2021","02.11.2021","03.11.2021","04.11.2021","05.11.2021","08.11.2021","09.11.2021","10.11.2021","11.11.2021","12.11.2021","15.11.2021","16.11.2021","17.11.2021","18.11.2021","19.11.2021","22.11.2021","23.11.2021","24.11.2021","25.11.2021","26.11.2021","29.11.2021","30.11.2021","01.12.2021","02.12.2021","03.12.2021","06.12.2021","07.12.2021","08.12.2021","09.12.2021","10.12.2021","13.12.2021","14.12.2021","15.12.2021","16.12.2021","17.12.2021","20.12.2021","21.12.2021","22.12.2021","23.12.2021","24.12.2021","27.12.2021","28.12.2021","29.12.2021","30.12.2021","31.12.2021","03.01.2022","04.01.2022","05.01.2022","06.01.2022","07.01.2022","10.01.2022","11.01.2022","12.01.2022","13.01.2022","14.01.2022","17.01.2022","18.01.2022","19.01.2022","20.01.2022","21.01.2022","24.01.2022","25.01.2022","26.01.2022","27.01.2022","28.01.2022","31.01.2022","01.02.2022","02.02.2022","03.02.2022","04.02.2022","07.02.2022","08.02.2022","09.02.2022","10.02.2022","11.02.2022","14.02.2022","15.02.2022","16.02.2022","17.02.2022","18.02.2022","21.02.2022","22.02.2022","23.02.2022","24.02.2022","25.02.2022","28.02.2022","01.03.2022","02.03.2022","03.03.2022","04.03.2022","07.03.2022","08.03.2022","09.03.2022","10.03.2022","11.03.2022","14.03.2022","15.03.2022","16.03.2022","17.03.2022","18.03.2022","21.03.2022","22.03.2022","23.03.2022","24.03.2022","25.03.2022","28.03.2022","29.03.2022","30.03.2022","31.03.2022","01.04.2022","04.04.2022","05.04.2022","06.04.2022","07.04.2022","08.04.2022","11.04.2022","12.04.2022","13.04.2022","14.04.2022","18.04.2022","19.04.2022","20.04.2022","21.04.2022","22.04.2022","24.04.2022","25.04.2022","26.04.2022","27.04.2022","28.04.2022","29.04.2022","02.05.2022","03.05.2022","04.05.2022","05.05.2022","06.05.2022","09.05.2022","10.05.2022","11.05.2022","12.05.2022","13.05.2022","16.05.2022","17.05.2022","18.05.2022","19.05.2022","20.05.2022","23.05.2022","24.05.2022","25.05.2022","26.05.2022","27.05.2022","30.05.2022","31.05.2022","01.06.2022","02.06.2022","03.06.2022","06.06.2022","07.06.2022","08.06.2022","09.06.2022","10.06.2022","13.06.2022","14.06.2022","15.06.2022","16.06.2022","17.06.2022","20.06.2022","21.06.2022","22.06.2022","23.06.2022","24.06.2022","27.06.2022","28.06.2022","29.06.2022","30.06.2022"],[51.09,53.6,54.3,54.38,55.99,55.66,56.58,56.06,56.42,55.1,54.75,55.9,56.08,56.1,55.41,55.88,55.91,55.81,55.53,55.88,56.35,57.46,58.46,58.84,59.34,60.56,61.09,61.47,61.14,62.43,63.3,63.35,64.34,63.93,62.91,65.24,65.37,67.04,66.88,66.13,63.69,62.7,64.07,66.74,69.36,68.24,67.52,67.9,69.63,69.22,68.88,68.39,68,63.28,64.53,64.62,60.79,64.41,61.95,64.57,64.98,64.14,63.54,64.86,62.15,62.74,63.16,63.2,62.95,63.28,63.67,66.58,66.94,66.77,67.05,66.57,65.32,65.4,66.11,65.65,66.42,67.27,68.56,67.25,67.56,68.88,68.96,68.09,68.28,68.32,68.55,69.32,67.05,68.71,69.46,68.71,66.66,65.11,66.44,68.46,68.65,68.87,69.46,69.63,69.32,70.25,71.35,71.31,71.89,71.49,72.22,72.22,72.52,72.69,72.86,73.99,74.39,73.08,73.51,74.9,74.81,75.19,75.56,76.18,74.68,74.76,75.13,75.84,76.17,77.16,74.53,73.43,74.12,75.55,75.16,76.49,74.76,73.47,73.59,68.62,69.35,72.23,73.79,74.1,74.5,74.48,74.74,76.05,76.33,72.89,72.41,70.38,71.29,70.7,69.04,70.63,71.44,71.31,70.59,69.51,69.03,68.23,66.45,65.18,68.75,71.05,72.25,71.07,72.7,73.41,72.99,71.59,73.03,72.61,72.22,71.69,72.6,71.45,72.92,73.51,73.6,75.46,75.67,75.34,73.92,74.36,76.19,77.25,78.09,79.53,79.09,78.64,78.52,79.28,81.26,82.56,81.08,81.95,82.39,83.65,83.42,83.18,84,84.86,84.33,85.08,85.82,84.61,85.53,85.99,86.4,84.58,84.32,84.38,84.71,84.72,81.99,80.54,82.74,83.43,84.78,82.64,82.87,82.17,82.05,82.43,80.28,81.24,78.89,79.7,82.31,82.25,82.22,72.72,73.44,70.57,68.87,69.67,69.88,73.08,75.44,75.82,74.42,75.15,74.39,73.7,73.88,75.02,73.52,71.52,73.98,75.29,76.85,76.14,78.6,78.94,79.23,79.32,77.78,78.98,80,80.8,81.99,81.75,80.87,83.72,84.67,84.47,86.06,86.48,87.51,88.44,88.38,87.89,86.27,88.2,88.74,88.17,90.03,91.21,89.16,89.47,91.11,93.27,92.69,90.78,91.55,91.41,94.44,96.48,93.28,94.81,92.97,93.54,95.39,96.84,96.84,99.08,97.93,100.99,104.97,112.93,110.46,118.11,123.21,127.98,111.14,109.33,112.67,106.9,99.91,98.02,106.64,107.93,115.62,115.48,121.6,119.03,120.65,112.48,110.23,113.45,107.91,104.39,107.53,106.64,101.07,100.58,102.78,98.48,104.64,108.78,111.7,113.16,107.25,106.8,108.33,106.65,104.56,102.29,104.61,104.95,107.59,109.34,107.58,104.97,110.14,110.9,112.39,105.94,102.46,107.51,107.45,111.55,114.24,111.93,109.11,112.04,112.55,110.78,110.69,111.12,114.17,119.43,117.6,115.6,113.56,117.61,119.72,119.51,120.57,123.58,123.07,122.01,122.27,121.17,118.51,119.81,113.12,114.13,114.65,111.74,110.05,113.12,115.09,117.98,112.45,109.03],[28.65,28.9,30.16,30.34,31.46,30.61,31.12,30.68,29.17,29.05,28.31,28.48,28.95,28.02,26.93,null,27.25,26.81,27.32,27.52,27.26,28.4,28.98,28.83,28.98,28.51,28.05,27.74,28.14,27.81,null,null,28.52,30.38,28.03,22.8,23.05,24.55,25,23.2,22.8,21.84,21.8,21.3,22.44,21.94,21.36,21.94,22.62,23.15,23.11,23.63,23.14,23.88,23.27,23.69,23.17,23.19,22.7,23.48,23.34,23.64,23.8,24.29,24.13,24.18,23.94,23.98,23.5,23.96,23.98,24.2,23.7,23.13,22.95,24.33,null,24.14,23.88,23.85,23.82,23.4,24.12,23.4,23.8,23.54,23.17,23.71,23.64,24.8,24.44,24.95,24.76,25.8,26.3,26.7,25.85,26.15,26.08,26.28,26.48,25.91,26.08,26.2,26.96,27.4,27.35,null,28.06,28.5,28.17,28.72,28.83,28.8,28.9,28.96,29.08,29.01,28,28.4,29,29.25,29.49,29.69,29.18,29.09,29.03,29.74,29.3,29.01,28.7,28.15,27.4,null,27.58,27.56,28.1,27.49,27.23,25.97,26.19,26.79,27,27.1,26.74,27.35,27.43,27.8,27.6,27.2,26.36,26.55,28.75,28.5,27.95,28.3,28.16,28.66,29.06,29.2,26.84,27.03,26.26,26.4,26.94,27.29,27.63,27.58,27.7,28.4,28.2,27.32,27,26.65,26.21,null,26.29,25.08,26.02,25.8,25.95,26,26.08,25.97,24.08,25.08,25.53,25.95,26.55,27.14,27.19,27.21,27.53,27.12,27.76,29,28.95,28.7,29,29.5,null,29.17,29.86,29.8,29.4,29.24,28.27,27.86,27.1,27.76,28.8,28.83,28.53,29.13,27.71,null,27.71,27.02,26.29,25.81,26.2,26.6,26.88,26.31,null,27.26,27.39,26.69,26.1,26.3,26.61,27.78,29.05,28.39,29.36,29.3,29.84,26.99,28.48,28.78,29.28,29.36,29.1,29.5,29.67,29.61,29.1,29.62,29.32,28.44,28.55,28.4,28.33,null,28.32,29.01,28.7,28.55,null,28.54,29.16,29.19,28.29,28.11,27.99,28.1,28.95,29.53,30.28,31.4,31.56,31.9,31.5,31.57,31.69,31.7,33.3,34.25,33.8,32.5,32.35,33.41,32.35,32.41,32.55,31.9,31.74,32.3,32.77,33.86,32.66,32.83,32.85,32.57,33.05,34.22,34.18,34.8,33.45,null,null,35.26,34.82,34.08,34.5,32,32.6,32.6,33.91,32.43,31.14,31.5,31.25,30.09,30.91,31.99,31.93,32.05,32.15,32.06,32.13,32.5,32.57,33.55,32.9,32.66,32.6,32.64,34.07,33.9,34.4,34.37,31.6,31.16,31.16,31.65,null,31.05,null,29.97,30.09,30.37,30.45,30.75,30.17,30.12,30.6,31.81,32.69,32.7,32.36,32.78,33.26,34.1,34.25,35,34.18,33.52,34.59,35.18,31.2,31.7,32.02,32.15,30.84,30.41,29.9,29.97,29.71,30.5,30.19,30.42,30.51,30.01,29.02,29.66,30,null,28.17,26.02,27.8,26.58,26.98,26.76,26.82,28.58,28.48,27.65]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th>Data<\/th>\n      <th>Brent_F<\/th>\n      <th>Petr4_A<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"pageLength":5,"autoWidth":true,"lengthChange":false,"searching":false,"columnDefs":[{"className":"dt-right","targets":[1,2]}],"order":[],"orderClasses":false}},"evals":[],"jsHooks":[]}</script>
+
+---
+# Exemplo - Petróleo Brent x PETR4
+
+Vamos realizar uma análise exploratória das séries.
+
+
+```r
+par(mai = c(1, 1, .1, .1), mgp = c(2, .75, 0))
+t &lt;- which(!is.na(df$Petr4_A)) # exclui dados faltantes da Petr4
+y &lt;- df$Petr4_A[t[-1]] # Abertura do dia
+x &lt;- df$Brent_F[t[-1]-1] # Fechamento do dia anterior
+plot.ts(x, xlab='Tempo', ylab='Brent');plot.ts(y, xlab='Tempo', ylab='PETR4')
+```
+
+&lt;img src="reg_quant_din_files/figure-html/unnamed-chunk-7-1.png" width="45%" /&gt;&lt;img src="reg_quant_din_files/figure-html/unnamed-chunk-7-2.png" width="45%" /&gt;
+
+---
+# Exemplo - Petróleo Brent x PETR4
+
+
+```r
+par(mai = c(.75, .75, .1, .1), mgp = c(2, .75, 0))
+plot(x, y, pch=19, xlab='Brent', ylab='PETR4');cat('Correlação: ',cor(x,y),sep='')
+```
+
+![](reg_quant_din_files/figure-html/unnamed-chunk-8-1.png)&lt;!-- --&gt;
+
+```
+## Correlação: 0.6517029
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+
+Iniciemos com uma regressão quantílica usual. O seguinte modelo `JAGS` foi escrito no arquivo `model_reg_quant.txt`.
+
+
+```r
+model{
+  # verossimilhança
+  for(i in 1:n){
+    y[i] ~ dnorm(mu[i] + a_tau*u[i], 1/sqrt(b_tau*u[i])) # DP em vez de Var
+    u[i] ~ dgamma(1,1)
+    mu[i] &lt;- x[i,] %*% theta_tau
+  }
+  a_tau &lt;- (1-2*tau)/(tau*(1-tau))
+  b_tau &lt;- 2/(tau*(1-tau))
+  # dist's a priori
+  for(j in 1:p){
+    theta_tau[j] ~ dnorm(xi[j], 1/sqrt(omega2)) # xi, omega2 hiperparametros
+  }
+}
+```
+Agora rodaremos o modelo utilizando a função `jags` do pacote `R2jags`.
+
+---
+# Exemplo - Petróleo Brent x PETR4
+
+
+```r
+X &lt;- cbind(1,x); n &lt;- dim(X)[1]; p &lt;- dim(X)[2] # primeira coluna de 1's (intercepto)
+xi &lt;- rep(0, p); It &lt;- 50000; Bi &lt;- 45000; Nt &lt;- 10; colnames(X) &lt;- c('Intercept', 'Brent')
+jags.data &lt;- list(y = y, x = X, n = n, p = p, tau = .5,
+                  xi = xi, omega2 = 10000) #hiperparâmetros
+jags.params &lt;- c("theta_tau")
+jagsfit &lt;- jags(data = jags.data, parameters.to.save = jags.params, DIC = FALSE,
+                n.iter = It, n.burnin = Bi, n.thin = Nt,
+                model.file = "model_reg_quant.txt", quiet = TRUE)
+theta_tau &lt;- jagsfit$BUGSoutput$sims.matrix # sims.matrix junta as cadeias diferentes,
+# theta_tau &lt;- jagsfit$BUGSoutput$sims.array # sims.array deixa separado
+colnames(theta_tau) &lt;- paste('\u03C4=0.5', c('_1','_X'), sep='')
+kableExtra::kbl(round(apply(theta_tau, 2, quantile, probs=c(.025, .5, .975)), 3))
+```
+
+&lt;table&gt;
+ &lt;thead&gt;
+  &lt;tr&gt;
+   &lt;th style="text-align:left;"&gt;   &lt;/th&gt;
+   &lt;th style="text-align:right;"&gt; τ=0.5_1 &lt;/th&gt;
+   &lt;th style="text-align:right;"&gt; τ=0.5_X &lt;/th&gt;
+  &lt;/tr&gt;
+ &lt;/thead&gt;
+&lt;tbody&gt;
+  &lt;tr&gt;
+   &lt;td style="text-align:left;"&gt; 2.5% &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 18.594 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 0.100 &lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+   &lt;td style="text-align:left;"&gt; 50% &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 19.440 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 0.110 &lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+   &lt;td style="text-align:left;"&gt; 97.5% &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 20.319 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 0.121 &lt;/td&gt;
+  &lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+
+---
+# Exemplo - Petróleo Brent x PETR4
+
+Replicando o mesmo código para `tau = c(.05, .25, .5, .75, .95)`, obtemos
+
+```r
+theta_tau &lt;- NULL; vtau &lt;- c(.05, .25, .5, .75, .95); theta_lst &lt;- list(); i &lt;- 0
+for (tau in vtau) {
+  jags.data$tau &lt;- tau; i &lt;- i+1
+  jagsfit &lt;- jags(data = jags.data, parameters.to.save = jags.params, DIC = FALSE,
+                  n.iter = It, n.burnin = Bi, n.thin = Nt,
+                  model.file = "model_reg_quant.txt", quiet = TRUE)
+  theta_tau &lt;- cbind(theta_tau, jagsfit$BUGSoutput$sims.matrix)
+  theta_lst[[i]] &lt;- jagsfit$BUGSoutput$sims.matrix
+}
+colnames(theta_tau) &lt;- kronecker(paste('\u03C4=',vtau,sep=''), c('_1','_X'), paste, sep=''); names(theta_lst) &lt;- vtau
+th_res &lt;- round(apply(theta_tau, 2, quantile, probs=c(.025, .5, .975)), 3); kbl(th_res)
+```
+
+&lt;table&gt;
+ &lt;thead&gt;
+  &lt;tr&gt;
+   &lt;th style="text-align:left;"&gt;   &lt;/th&gt;
+   &lt;th style="text-align:right;"&gt; τ=0.05_1 &lt;/th&gt;
+   &lt;th style="text-align:right;"&gt; τ=0.05_X &lt;/th&gt;
+   &lt;th style="text-align:right;"&gt; τ=0.25_1 &lt;/th&gt;
+   &lt;th style="text-align:right;"&gt; τ=0.25_X &lt;/th&gt;
+   &lt;th style="text-align:right;"&gt; τ=0.5_1 &lt;/th&gt;
+   &lt;th style="text-align:right;"&gt; τ=0.5_X &lt;/th&gt;
+   &lt;th style="text-align:right;"&gt; τ=0.75_1 &lt;/th&gt;
+   &lt;th style="text-align:right;"&gt; τ=0.75_X &lt;/th&gt;
+   &lt;th style="text-align:right;"&gt; τ=0.95_1 &lt;/th&gt;
+   &lt;th style="text-align:right;"&gt; τ=0.95_X &lt;/th&gt;
+  &lt;/tr&gt;
+ &lt;/thead&gt;
+&lt;tbody&gt;
+  &lt;tr&gt;
+   &lt;td style="text-align:left;"&gt; 2.5% &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 13.550 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 0.082 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 15.694 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 0.102 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 18.531 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 0.100 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 20.852 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 0.098 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 23.520 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 0.071 &lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+   &lt;td style="text-align:left;"&gt; 50% &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 15.265 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 0.104 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 16.589 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 0.113 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 19.438 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 0.110 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 21.863 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 0.110 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 25.320 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 0.094 &lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+   &lt;td style="text-align:left;"&gt; 97.5% &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 16.995 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 0.121 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 17.550 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 0.124 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 20.301 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 0.121 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 22.884 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 0.121 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 27.215 &lt;/td&gt;
+   &lt;td style="text-align:right;"&gt; 0.115 &lt;/td&gt;
+  &lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+
+---
+# Exemplo - Petróleo Brent x PETR4
+Coeficientes por quantil.
+
+
+```r
+m_1 &lt;- range(th_res[,grep("_1", colnames(th_res))])
+m_X &lt;- range(th_res[,grep("_X", colnames(th_res))])
+plot(vtau, th_res[2,grep("_1", colnames(th_res))], type='b', xlab='\u03C4', ylab='Intercepto', ylim=m_1, pch=19)
+lines(vtau, th_res[1,grep("_1", colnames(th_res))], lty=2)
+lines(vtau, th_res[3,grep("_1", colnames(th_res))], lty=2)
+abline(h = 0, col='red')
+plot(vtau, th_res[2,grep("_X", colnames(th_res))], type='b', xlab='\u03C4', ylab='Brent', ylim=m_X, pch=19)
+lines(vtau, th_res[1,grep("_X", colnames(th_res))], lty=2)
+lines(vtau, th_res[3,grep("_X", colnames(th_res))], lty=2)
+abline(h = 0, col='red')
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+Coeficientes por quantil.
+
+&lt;img src="reg_quant_din_files/figure-html/unnamed-chunk-13-1.png" width="45%" /&gt;&lt;img src="reg_quant_din_files/figure-html/unnamed-chunk-13-2.png" width="45%" /&gt;
+
+---
+# Exemplo - Petróleo Brent x PETR4
+Como ficam os intervalos quantílicos preditos?
+
+Por exemplo, o Intervalo de 90% pode ser obtido como `\([Q_{0.05}(Y|X), Q_{0.95}(Y|X)] = [X'\theta^{(0.05)}, X'\theta^{(0.95)}]\)`.
+
+Construindo os intervalos:
+
+```r
+Ns &lt;- nrow(theta_tau); nam_th &lt;- names(theta_lst); pred_lst &lt;- pred_qts &lt;- list(); cum_qts &lt;- NULL; i &lt;- 0
+for (tau in c(0.05, 0.5, 0.95)) {
+  pred &lt;- NULL; i &lt;- i+1
+  for(is in 1:Ns){
+    pred &lt;- rbind(pred, (X %*% (theta_lst[[which(nam_th == tau)]])[is,])[,1])
+  }
+  pred_lst[[i]] &lt;- pred; pred_qts[[i]] &lt;- apply(pred, 2, quantile, probs = c(0.025, 0.5, 0.975))
+  cum_qts &lt;- c(cum_qts, mean(y &lt; pred_qts[[i]][2,]))
+  names(pred_lst)[i] &lt;- names(pred_qts)[i] &lt;- names(cum_qts)[i] &lt;- tau
+}
+cum_qts
+```
+
+```
+##       0.05        0.5       0.95 
+## 0.01891892 0.50540541 0.97837838
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+Plotando os intervalos:
+
+
+```r
+par(mai = c(1, 1, .1, .1), mgp = c(2, .75, 0))
+rg &lt;- range(y, pred_qts);plot.ts(y, ylim = rg, ylab = "PETR4")
+for (i in 1:length(pred_qts)) {
+  lines(x=1:nrow(X), y=(pred_qts[[i]])[2,], col='red')
+  lines(x=1:nrow(X), y=(pred_qts[[i]])[1,], col='red', lty=2)
+  lines(x=1:nrow(X), y=(pred_qts[[i]])[3,], col='red', lty=2)
+}
+```
+
+![](reg_quant_din_files/figure-html/unnamed-chunk-15-1.png)&lt;!-- --&gt;
+
+
+
+---
+# Exemplo - Petróleo Brent x PETR4
+Vamos agora ajustar o modelo de regressão quantílica dinâmica com o seguinte código JAGS salvo no arquivo `model_reg_quant_din.txt`.
+
+
+```r
+model{
+  # verossimilhança
+  for(i in 1:n){
+    y[i] ~ dnorm(mu[i] + a_tau*u[i], 1/sqrt(b_tau*u[i])) # Precision em vez de Var
+    u[i] ~ dgamma(1,1); mu[i] &lt;- x[i,] %*% theta_tau[i,]
+  }
+  a_tau &lt;- (1-2*tau)/(tau*(1-tau)); b_tau &lt;- 2/(tau*(1-tau))
+  # dist's a priori
+  theta_tau[1,1] ~ dnorm(xi[1], 1/sqrt(omega2)) # xi, omega2 hiperparametros
+  for (i in 2:n) theta_tau[i,1] &lt;- theta_tau[i-1,1]
+  }
+  for(j in 2:p){
+    theta_tau[1,j] ~ dnorm(xi[j], 1/sqrt(omega2)) # xi, omega2 hiperparametros
+    for (i in 2:n) theta_tau[i,j] ~ dnorm(theta_tau[i-1,j], 400000) # xi, omega2 hiperparametros
+  }
+}
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+O modelo é ajustado pelo seguinte código.
+
+```r
+th0 &lt;- theta_lst; theta_tau &lt;- NULL; vtau &lt;- c(.05, .5, .95); theta_lst &lt;- list(); i &lt;- 0
+for (tau in vtau) {
+  jags.data$tau &lt;- tau; i &lt;- i+1; jags.data$xi &lt;- colMeans(th0[[which(nam_th == tau)]])
+  jagsfit &lt;- jags(data = jags.data, parameters.to.save = jags.params, DIC = FALSE,
+                  n.iter = It, n.burnin = Bi, n.thin = Nt,
+                  model.file = "model_reg_quant_din.txt", quiet = TRUE)
+  theta_tau &lt;- cbind(theta_tau, jagsfit$BUGSoutput$sims.matrix)
+  theta_lst[[i]] &lt;- jagsfit$BUGSoutput$sims.matrix
+}
+names(theta_lst) &lt;- vtau
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+O seguinte código computa os quantis dos coeficientes.
+
+```r
+nS &lt;- nrow(theta_lst[[1]])
+th_arr &lt;- array(dim = c(n, p, length(vtau), Ns))
+for (i in 1:length(vtau)) {
+  for(is in 1:Ns){
+    th_arr[,,i,is] &lt;- matrix(theta_lst[[i]][is,], nrow = n, byrow=FALSE)
+  }
+}
+th_qts &lt;- apply(th_arr, 1:3, quantile, probs=c(0.025, 0.5, 0.975))
+```
+
+Os gráficos são plotados no próximo slide.
+
+---
+# Exemplo - Petróleo Brent x PETR4
+
+```r
+par(mai = c(1, 1, .1, .1), mgp = c(2, .75, 0)); cores &lt;- c('red', 'black', 'blue')
+for(j in 1:p){
+  for(i in 1:length(vtau)){
+    rgt &lt;- range(th_qts[,,j,])
+    if(i == 1) plot.ts(t(th_qts[,,j,i])[,2], ylim=rgt, ylab=colnames(X)[j], xlab='Time', col=cores[i]) else lines(1:n, t(th_qts[,,j,i])[,2], col=cores[i])
+    lines(t(th_qts[,,j,i])[,1], lty=2, col=cores[i]); lines(t(th_qts[,,j,i])[,3], lty=2, col=cores[i])
+  }
+}
+```
+
+&lt;img src="reg_quant_din_files/figure-html/unnamed-chunk-20-1.png" width="45%" /&gt;&lt;img src="reg_quant_din_files/figure-html/unnamed-chunk-20-2.png" width="45%" /&gt;
+
+---
+# Exemplo - Petróleo Brent x PETR4
+&lt;img src="reg_quant_din_files/figure-html/unnamed-chunk-21-1.png" width="45%" /&gt;&lt;img src="reg_quant_din_files/figure-html/unnamed-chunk-21-2.png" width="45%" /&gt;
+
+
+---
+# Exemplo - Petróleo Brent x PETR4
+A seguir são computadas as frequências acumuladas empíricas.
+
+```r
+Ns &lt;- nrow(theta_lst[[1]]); nam_th &lt;- names(theta_lst); pred_lst &lt;- pred_qts &lt;- list(); cum_qts &lt;- NULL; i &lt;- 0
+for (tau in c(0.05, 0.5, 0.95)) {
+  pred &lt;- NULL; i &lt;- i+1
+  for(is in 1:Ns){
+    th_mat &lt;- matrix(theta_lst[[which(nam_th == tau)]][is,], nrow = length(y), byrow=FALSE)
+    pred &lt;- rbind(pred, rowSums(X * th_mat))
+  }
+  pred_lst[[i]] &lt;- pred; pred_qts[[i]] &lt;- apply(pred, 2, quantile, probs = c(0.025, 0.5, 0.975))
+  cum_qts &lt;- c(cum_qts, mean(y &lt; pred_qts[[i]][2,]))
+  names(pred_lst)[i] &lt;- names(pred_qts)[i] &lt;- names(cum_qts)[i] &lt;- tau
+}
+cum_qts
+```
+
+```
+##        0.05         0.5        0.95 
+## 0.008108108 0.513513514 0.991891892
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+Por fim, introduzimos os intervalos de previsão quantílicos.
+
+```r
+par(mai = c(1, 1, .1, .1), mgp = c(2, .75, 0))
+rg &lt;- range(y, pred_qts);plot.ts(y, ylim = rg, ylab = "PETR4")
+for (i in 1:length(pred_qts)) {
+  lines(x=1:nrow(X), y=(pred_qts[[i]])[2,], col='red')
+  lines(x=1:nrow(X), y=(pred_qts[[i]])[1,], col='red', lty=2)
+  lines(x=1:nrow(X), y=(pred_qts[[i]])[3,], col='red', lty=2)
+}
+```
+
+![](reg_quant_din_files/figure-html/unnamed-chunk-23-1.png)&lt;!-- --&gt;
+
+---
+# Exemplo - Petróleo Brent x PETR4
+Comparação entre os gráficos das regressões quantílicas ordinal e dinâmica.
+
+&lt;img src="reg_quant_din_files/figure-html/unnamed-chunk-24-1.png" width="45%" /&gt;&lt;img src="reg_quant_din_files/figure-html/unnamed-chunk-24-2.png" width="45%" /&gt;
+
+---
+# Exemplo - Petróleo Brent x PETR4
+Comparação entre os gráficos das regressões quantílicas ordinal e dinâmica.
+
+&lt;img src="reg_quant_din_files/figure-html/unnamed-chunk-25-1.png" width="45%" /&gt;&lt;img src="reg_quant_din_files/figure-html/unnamed-chunk-25-2.png" width="45%" /&gt;
+
+---
+class: middle, center, inverse
+
+# FIM
+## Perguntas?
+
+---
+# Referências
+
+Gonçalves, K. C., H. S. Migon, and L. S. Bastos (2020). "Dynamic
+quantile linear models: A bayesian approach". In: _Bayesian Analysis_
+15.2, pp. 335-362.
+
+Koenker, R. (2005). _Quantile Regression_. Econometric Society
+Monographs. Cambridge University Press.
+
+Kotz, S., T. Kozubowski, and K. Podgórski (2001). _The Laplace
+distribution and generalizations: a revisit with applications to
+communications, economics, engineering, and finance_. 183. Springer
+Science &amp; Business Media.
+
+Yu, K. and R. A. Moyeed (2001). "Bayesian quantile regression". In:
+_Statistics &amp; Probability Letters_ 54.4, pp. 437-447.
+
+    </textarea>
+<style data-target="print-only">@media screen {.remark-slide-container{display:block;}.remark-slide-scaler{box-shadow:none;}}</style>
+<script src="https://remarkjs.com/downloads/remark-latest.min.js"></script>
+<script>var slideshow = remark.create({
+"ratio": "16:9",
+"highlightStyle": "github",
+"highlightLines": true,
+"countIncrementalSlides": false
+});
+if (window.HTMLWidgets) slideshow.on('afterShowSlide', function (slide) {
+  window.dispatchEvent(new Event('resize'));
+});
+(function(d) {
+  var s = d.createElement("style"), r = d.querySelector(".remark-slide-scaler");
+  if (!r) return;
+  s.type = "text/css"; s.innerHTML = "@page {size: " + r.style.width + " " + r.style.height +"; }";
+  d.head.appendChild(s);
+})(document);
+
+(function(d) {
+  var el = d.getElementsByClassName("remark-slides-area");
+  if (!el) return;
+  var slide, slides = slideshow.getSlides(), els = el[0].children;
+  for (var i = 1; i < slides.length; i++) {
+    slide = slides[i];
+    if (slide.properties.continued === "true" || slide.properties.count === "false") {
+      els[i - 1].className += ' has-continuation';
+    }
+  }
+  var s = d.createElement("style");
+  s.type = "text/css"; s.innerHTML = "@media print { .has-continuation { display: none; } }";
+  d.head.appendChild(s);
+})(document);
+// delete the temporary CSS (for displaying all slides initially) when the user
+// starts to view slides
+(function() {
+  var deleted = false;
+  slideshow.on('beforeShowSlide', function(slide) {
+    if (deleted) return;
+    var sheets = document.styleSheets, node;
+    for (var i = 0; i < sheets.length; i++) {
+      node = sheets[i].ownerNode;
+      if (node.dataset["target"] !== "print-only") continue;
+      node.parentNode.removeChild(node);
+    }
+    deleted = true;
+  });
+})();
+// add `data-at-shortcutkeys` attribute to <body> to resolve conflicts with JAWS
+// screen reader (see PR #262)
+(function(d) {
+  let res = {};
+  d.querySelectorAll('.remark-help-content table tr').forEach(tr => {
+    const t = tr.querySelector('td:nth-child(2)').innerText;
+    tr.querySelectorAll('td:first-child .key').forEach(key => {
+      const k = key.innerText;
+      if (/^[a-z]$/.test(k)) res[k] = t;  // must be a single letter (key)
+    });
+  });
+  d.body.setAttribute('data-at-shortcutkeys', JSON.stringify(res));
+})(document);
+(function() {
+  "use strict"
+  // Replace <script> tags in slides area to make them executable
+  var scripts = document.querySelectorAll(
+    '.remark-slides-area .remark-slide-container script'
+  );
+  if (!scripts.length) return;
+  for (var i = 0; i < scripts.length; i++) {
+    var s = document.createElement('script');
+    var code = document.createTextNode(scripts[i].textContent);
+    s.appendChild(code);
+    var scriptAttrs = scripts[i].attributes;
+    for (var j = 0; j < scriptAttrs.length; j++) {
+      s.setAttribute(scriptAttrs[j].name, scriptAttrs[j].value);
+    }
+    scripts[i].parentElement.replaceChild(s, scripts[i]);
+  }
+})();
+(function() {
+  var links = document.getElementsByTagName('a');
+  for (var i = 0; i < links.length; i++) {
+    if (/^(https?:)?\/\//.test(links[i].getAttribute('href'))) {
+      links[i].target = '_blank';
+    }
+  }
+})();
+// adds .remark-code-has-line-highlighted class to <pre> parent elements
+// of code chunks containing highlighted lines with class .remark-code-line-highlighted
+(function(d) {
+  const hlines = d.querySelectorAll('.remark-code-line-highlighted');
+  const preParents = [];
+  const findPreParent = function(line, p = 0) {
+    if (p > 1) return null; // traverse up no further than grandparent
+    const el = line.parentElement;
+    return el.tagName === "PRE" ? el : findPreParent(el, ++p);
+  };
+
+  for (let line of hlines) {
+    let pre = findPreParent(line);
+    if (pre && !preParents.includes(pre)) preParents.push(pre);
+  }
+  preParents.forEach(p => p.classList.add("remark-code-has-line-highlighted"));
+})(document);</script>
+
+<script>
+slideshow._releaseMath = function(el) {
+  var i, text, code, codes = el.getElementsByTagName('code');
+  for (i = 0; i < codes.length;) {
+    code = codes[i];
+    if (code.parentNode.tagName !== 'PRE' && code.childElementCount === 0) {
+      text = code.textContent;
+      if (/^\\\((.|\s)+\\\)$/.test(text) || /^\\\[(.|\s)+\\\]$/.test(text) ||
+          /^\$\$(.|\s)+\$\$$/.test(text) ||
+          /^\\begin\{([^}]+)\}(.|\s)+\\end\{[^}]+\}$/.test(text)) {
+        code.outerHTML = code.innerHTML;  // remove <code></code>
+        continue;
+      }
+    }
+    i++;
+  }
+};
+slideshow._releaseMath(document);
+</script>
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+(function () {
+  var script = document.createElement('script');
+  script.type = 'text/javascript';
+  script.src  = 'https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-MML-AM_CHTML';
+  if (location.protocol !== 'file:' && /^https?:/.test(script.src))
+    script.src  = script.src.replace(/^https?:/, '');
+  document.getElementsByTagName('head')[0].appendChild(script);
+})();
+</script>
+  </body>
+</html>
