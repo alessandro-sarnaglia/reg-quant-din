@@ -1,0 +1,614 @@
+---
+title: "Regressão Quantílica Dinâmica"
+subtitle: "Abordagem bayesiana utilizando JAGS"
+author: "Alessandro J. Q. Sarnaglia"
+institute: "DEST/UFES"
+# date: "2016/12/12 (updated: `r Sys.Date()`)"
+output:
+  xaringan::moon_reader:
+    lib_dir: libs
+    nature:
+      ratio: 16:9
+      highlightStyle: github
+      highlightLines: true
+      countIncrementalSlides: false
+      titleSlideClass: ["left", "bottom", "inverse"]
+
+
+---
+
+<style>
+body {
+text-align: justify}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, load_refs, include=FALSE, cache=FALSE}
+library("RefManageR"); library("bibtex"); library("R2jags");
+library("knitr"); library("kableExtra"); library("DT")
+BibOptions(check.entries = FALSE,
+           bib.style = "authoryear",
+           cite.style = "authoryear",
+           style = "markdown",
+           hyperlink = FALSE,
+           dashed = FALSE)
+myBib <- ReadBib("refs.bib", check = FALSE)
+```
+
+<script type="text/x-mathjax-config">
+MathJax.Hub.Config({
+  TeX: {
+    Macros: {
+      XX: "{\\mathbf{X}}",
+      xx: "{\\mathbf{x}}",
+      ag: "{\\mathrm{argmax}}"
+    }
+  }
+});
+</script>
+
+# Inferência Bayesiana
+
+- Observações: $\XX = (X_1, \ldots, X_n)$;
+
+- Vetor de parâmetros: $\theta = (\theta_1, \ldots, \theta_p)$;
+
+- Verossimilhança: $f(\xx | \theta) = f(x_1, \ldots, x_n | \theta)$ vista como função de $\theta$.
+
+**Frequentista:** em geral, máxima verossimilhança, isto é $\hat\theta = \ag_\theta f(\xx | \theta)$. Comumente, fazemos:
+$$
+\left. \frac{\partial}{\partial \theta} f(\xx | \theta) \right|_{\theta = \hat\theta} = 0.
+$$
+
+**Bayesiana:** a incerteza inicial sobre $\theta$ é modelada por uma distribuição *a priori* $\pi(\theta)$. A informação dos dados $\XX$ é utilizada para atualizar o conhecimento sobre $\theta$ por meio da regra de Bayes:
+$$
+\pi(\theta | \xx) = \frac{f(\xx | \theta) \pi(\theta)}{\int f(\xx | \theta) \pi(\theta) d\theta} = \frac{f(\xx | \theta) \pi(\theta)}{f(\xx)} \propto f(\xx | \theta) \pi(\theta).
+$$
+Denominamos $\pi(\theta | \xx)$ de distribuição *a posteriori*.
+
+---
+# Monte Carlo via Cadeia de Markov - MCMC
+
+Mecanismo para amostrar da distribuição de $\theta|\xx$. Em poucas palavras:
+- Algoritmos que consistem de gerar trajetórias de cadeia de Markov (ao contrário de amostras iid);
+- As cadeias devem possuir distribuição de equilíbrio que coincide com a distribuição da qual queremos gerar valores, isto é, $\pi(\theta | \xx)$;
+- A amostra gerada $\theta_1, \ldots, \theta_m$ é utilizada para realizar inferência sobre $\theta$.
+
+*Vantagem:* é um método que funciona em condições bem gerais, não sendo necessário conhecer $\pi(\theta| \xx)$ em sua integralidade.
+
+*Desvantagem:* em geral, é computacionalmente custoso.
+
+Existem vários algoritmos MCMC: Metropolis-Hasting; Slice sampling; Multiple-try Metropolis; Reversible-jump; Hamiltonian; entre outros.
+
+Algumas linguagens implementam esses métodos (`STAN` e `JAGS`, por exemplo). Alguns pacotes do `R` promovem a interface. Por exemplo, `rstan`, `rjags` e `R2jags`.
+
+---
+# Just Another Gibbs Sampler - JAGS
+
+É uma linguagem para a análise de Modelos Hierárquicos Bayesianos usando MCMC.
+
+JAGS foi concebido com três objetivos em mente:
+- Ter um mecanismos de plataforma cruzada para a linguagem `BUGS`;
+- Pode ser estendido, permitindo usuários escreverem suas próprias funções, distribuições e amostradores;
+- Ser uma plataforma para experimentação com ideias em modelagem bayesiana.
+
+Para modelar em JAGS, tudo que você precisa fazer é escrever a verossimilhança e as distribuições *a priori* em um arquivo de texto.
+
+Ao submeter o código ao JAGS, ele roda o MCMC e produz a amostra da distribuição *a posteriori* desejada.
+
+---
+## Exemplo 1 - JAGS
+
+Exemplo de código em JAGS para o seguinte modelo:
+$$
+X_i|\mu,\sigma^2 \sim N(\mu,\sigma^2), \ i=1, \ldots, n;
+$$
+$$
+\mu \sim N(\xi,\omega^2); \ \sigma^2 \sim G(\alpha,\beta).
+$$
+
+```{R eval=FALSE, include=TRUE}
+model{
+  # verossimilhanca
+  for(i in 1:n){
+    x[i] ~ dnorm(mu, 1/sqrt(sig2)) # a parametrizacao é em funcao da precisão (1/DP)
+  }
+  # dist.'s a priori
+  mu ~ dnorm(xi, 1/sqrt(omega2)) # xi, omega2 hiperparametros
+  sig2 ~ dgamma(alpha, beta) # alpha, beta hiperparametros
+}
+```
+
+---
+## Exemplo 2 - JAGS
+
+Exemplo de código em JAGS para o seguinte modelo de regressão:
+
+$$Y_i|\theta,\sigma^2 \sim N(\mu_i,\sigma^2), \ \mu_i = X_i'\theta, \ X_i = (X_{i1}, \ldots, X_{ip})', \ i=1, \ldots, n;$$
+$$\theta = (\theta_1, \ldots, \theta_p)' \sim N_p(\xi,\text{diag}(\omega^2)); \ \sigma^2 \sim G(\alpha,\beta).$$
+```{R eval=FALSE, include=TRUE}
+model{
+  # verossimilhanca
+  for(i in 1:n){
+    y[i] ~ dnorm(mu[i], 1/sqrt(sig2)) # a parametrizacao é em funcao da precisão
+    mu[i] <- t(theta) %*% x[i,] # repare que em vez de ~ usamos <-
+  }
+  # dist.'s a priori
+  for(j in 1:p){
+    theta[j] ~ dnorm(xi[j], 1/sqrt(omega2)) # xi, omega2 hiperparametros
+  }
+  sig2 ~ dgamma(alpha, beta) # alpha, beta hiperparametros
+}
+```
+
+---
+## R2jags
+
+Os códigos anteriores especificam o modelo na linguagem JAGS. Precisamos efetivamente rodar o modelo.
+
+*Pergunta:* como rodar o modelo em `R`?
+
+Podemos utilizar o pacote `R2jags`. Vejamos uma forma bem básica para o Exemplo 2 visto anteriormente.
+
+```{R eval=FALSE, include=TRUE}
+library(R2jags)
+n <- dim(x)[1]; p <- dim(x)[2]
+xi <- rep(0, p)
+jags.data <- list(y = y, x = x, n = n, p = p,
+                  xi = xi, omega2 = 10000, #hiperparâmetros
+                  alpha = 0.1, beta = 0.1) #hiperparâmetros
+jags.params <- c("theta", "sigma2")
+jagsfit <- jags(data = jags.data, parameters.to.save = jags.params,
+                n.iter = 5000, model.file = "jags_model.txt")
+```
+
+- O arquivo `jags_model.txt` contém o modelo am JAGS salvo no computador;
+- O objeto `jagsfit` conterá vários elementos, entre eles a amostra da distribuição *a posteriori* $\pi(\theta,\sigma^2 | \mathbf{y}, \mathbf{x}),$ disponível nos elementos `sims.matrix` ou `sims.array`, dentro do elemento `BUGSoutput`.
+
+---
+class: middle, center
+
+## Exemplo com a turma
+
+Vamos coletar altura (explicativa) e peso (resposta). Vamos usar o JAGS para implementar um regressão linear simples nesse contexto.
+
+---
+# Regressão Quantílica - I
+
+O quantil de ordem $\tau$ de uma variável aleatória $Y$ com função de distribuição acumulada $F(y) = P(Y \leq y)$ é definida como
+$$Q_\tau(Y) = F^{-1}(\tau) = \inf\{y|F(y) \geq \tau\}.$$
+Em regressão quantílica, em vez do modelo $E(Y_i|X_i, \theta) = X_i'\theta$, é considerado
+$$Q_\tau(Y_i|X_i, \theta) = X_i'\theta^{(\tau)},\ 0 < \tau < 1,$$
+onde  $\theta^{(\tau)} = (\theta^{(\tau)}_1, \ldots, \theta^{(\tau)}_p)'$ é um vetor de coeficientes que depende de $\tau$.
+
+Considere a função perda $\rho_\tau (u) = u(\tau - \mathbb{I}(u < 0))$. `r Citet(myBib, "koenker:2005")` mostrou que o valor que minimiza a perda esperada $E_F(\rho_\tau (Y - q)$ satisfaz $F(q) = \tau$, ou ainda $q = Q_\tau(Y)$.
+
+De maneira similar, o quantil amostral $\hat{q}$ é obtido minimizando-se a perda média $\frac{1}{n}\sum_{i=1}^n(\rho_\tau (Y_i - \hat{q}))$. Assim, a regressão quantílica é estimada pela solução do seguinte problema de minimização
+$$\textstyle\hat\theta^{(\tau)} = \text{arg}\min_\theta \left[\frac{1}{n}\sum_{i = 1}^n \rho_\tau(y_i - X_i'\theta)\right].$$
+---
+# Regressão Quantílica - II
+`r Citet(myBib, "yu:2001")` mostraram que o problema de minimização visto anteriormente é exatamente equivalente à maximização de uma verossimilhança associada a distribuição Laplace assimétrica.
+
+Dizemos que $Z$ tem distribuição Laplace assimétrica com parâmetro $\tau$ se sua densidade é dada por
+$$f_Z(z) = \tau(1-\tau)\exp\{-\rho_\tau(z)\}.$$
+Nesse caso, escrevemos $Z \sim LA(\tau)$. Parâmetros de locação $\mu$ e escala $\sigma$ podem ser introduzidos fazendo $Z = \frac{Y-\mu}{\sigma}$, de modo que $f_Y(y) = \frac{1}{\sigma}f_Z(\frac{y-\mu}{\sigma})$. Nesse caso, escrevemos $Y \sim LA(\mu,\sigma,\tau)$.
+
+Assim, no contexto Bayesiano, o modelo de regressão quantílica pode ser especificado como
+$$Y_i|X_i,\theta^{(\tau)} \sim LA(\mu = X_i'\theta^{(\tau)}, \sigma = 1, \tau = \tau),\ \ \theta^{(\tau)} \sim \pi(\cdot).$$
+**Problema:** a implementação em JAGS não é direta por não se ter a distribuição Laplace Assimétrica implementada.
+
+Felizmente, a seguinte propriedade permite contornar esse problema.
+
+---
+# Regressão Quantílica - III
+
+**Propriedade:** `r Citep(myBib, "kotz:2001")` é possível mostrar que, se $Y|\mu,\sigma \sim LA(\mu, \sigma, \tau)$, então podemos escrever hierarquicamente:
+$$Y|U,\mu,\sigma \sim N(\mu + a_\tau U, b_\tau \sigma U)\ \ \text{e}\ \ U|\sigma \sim G(1, \sigma),$$
+onde $a_\tau = \frac{1-2\tau}{\tau(1-\tau)}$ e $b_\tau = \frac{2}{\tau(1-\tau)}$, e $G(\alpha, \beta)$ denota a densidade gama com esperança $\frac{\alpha}{\beta}$ e variância $\frac{\alpha}{\beta^2}$.
+
+Assim, o modelo de regressão quantílica ficaria totalmente especificado com a seguinte estrutura hierárquica:
+
+$$Y_i|U_i,\mu_i \sim N(\mu_i + a_\tau U_i, b_\tau U_i), \ \ \mu_i = X_i'\theta^{(\tau)},$$
+$$U_i \sim G(1, 1) \ \ \text{e} \ \ \theta^{(\tau)} \sim \pi(\cdot).$$
+Uma escolha natural para a $\pi(\cdot)$ é dada pela distribuição $N_p$.
+
+---
+# Regressão Quantílica - IV
+
+O código JAGS abaixo define o modelo de regressão quantílica.
+
+```{R eval=FALSE, include=TRUE}
+model{
+  # verossimilhança
+  for(i in 1:n){
+    y[i] ~ dnorm(mu[i] + a_tau*u[i], 1/sqrt(b_tau*u[i])) # DP em vez de Var
+    u[i] ~ dgamma(1,1)
+    mu[i] <- x[i,] %*% theta_tau
+  }
+  a_tau <- (1-2*tau)/(tau*(1-tau))
+  b_tau <- 2/(tau*(1-tau))
+  # dist's a priori
+  for(j in 1:p){
+    theta_tau[j] ~ dnorm(xi[j], 1/sqrt(omega2)) # xi, omega2 hiperparametros
+  }
+}
+```
+Os objetos `n`, `p`, `tau`, `xi` e `omega2` devem ser fornecidos pelo parâmetro `data` da função `jags`.
+
+---
+class: middle, center
+
+## Exemplo com a turma
+
+Vamos retornar ao exemplo da altura (explicativa) e do peso (resposta) dos alunos da turma. Vamos usar o JAGS para implementar a regressão quantílica nesse contexto.
+
+---
+# Regressão Quantílica Dinâmica - I
+
+Se os dados $Y_t$ e $X_t$ são observados em função do tempo $t$. É provável que o processo de amostragem sistemática naturalmente induza a presença de dependência temporal.
+
+**Desafio:** A regressão quantílica é desenvolvida para dados iid. Como estender para dados com dependência temporal?
+
+**Solução:**
+- Permitir que os coeficientes evoluam com o tempo, isto é, que $\theta^{(\tau)}_t$.
+- Mecanismo de evolução de $\theta^{(\tau)}_t$ dado por
+$$\theta^{(\tau)}_t|\theta^{(\tau)}_{t-1},G_t,W_t \sim N_p(G_t\theta^{(\tau)}_{t-1}, W_t),$$
+em que $G_t$ é uma matriz $p\times p$ descrevendo os parâmetros de evolução e $W_t$ é uma matriz de covariâncias.
+
+Para maiores detalhes sobre a descrição do modelo, veja `r Citet(myBib, "goncalves:2020")`.
+
+---
+# Regressão Quantílica Dinâmica - II
+Código JAGS:
+```{R eval=FALSE, include=TRUE}
+model{
+  # verossimilhança
+  for(i in 1:n){
+    y[i] ~ dnorm(mu[i] + a_tau*u[i], 1/sqrt(b_tau*u[i])) # Precision em vez de Var
+    u[i] ~ dgamma(1,1)
+    mu[i] <- x[i,] %*% theta_tau[i,]
+  }
+  a_tau <- (1-2*tau)/(tau*(1-tau))
+  b_tau <- 2/(tau*(1-tau))
+  # dist's a priori
+  for(j in 1:p){
+    theta_tau[1,j] ~ dnorm(xi[j], 1/sqrt(omega2)) # xi, omega2 hiperparametros
+    for (i in 2:n) {
+      theta_tau[i,j] ~ dnorm(theta_tau[i-1,j], 1600) # xi, omega2 hiperparametros
+    }
+  }
+}
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+
+Considere os dados de Barril de Petróleo Brent (Fechamento) e Petr4 (Abertura).
+
+```{R, out.width = '80%'}
+df <- read.csv(file = 'dados.csv', header = T, dec = ',')
+DT::datatable(df, rownames = FALSE, options = list(pageLength = 5, autoWidth = TRUE, lengthChange = FALSE, searching=FALSE))
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+
+Vamos realizar uma análise exploratória das séries.
+
+```{R fig.height=3.2, fig.show="hold", fig.width=5, message=FALSE, warning=FALSE, out.width="45%"}
+par(mai = c(1, 1, .1, .1), mgp = c(2, .75, 0))
+t <- which(!is.na(df$Petr4_A)) # exclui dados faltantes da Petr4
+y <- df$Petr4_A[t[-1]] # Abertura do dia
+x <- df$Brent_F[t[-1]-1] # Fechamento do dia anterior
+plot.ts(x, xlab='Tempo', ylab='Brent');plot.ts(y, xlab='Tempo', ylab='PETR4')
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+
+```{R fig.height=4.5, fig.width=4.5, message=FALSE, warning=FALSE}
+par(mai = c(.75, .75, .1, .1), mgp = c(2, .75, 0))
+plot(x, y, pch=19, xlab='Brent', ylab='PETR4');cat('Correlação: ',cor(x,y),sep='')
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+
+Iniciemos com uma regressão quantílica usual. O seguinte modelo `JAGS` foi escrito no arquivo `model_reg_quant.txt`.
+
+```{R eval=FALSE, include=TRUE}
+model{
+  # verossimilhança
+  for(i in 1:n){
+    y[i] ~ dnorm(mu[i] + a_tau*u[i], 1/sqrt(b_tau*u[i])) # DP em vez de Var
+    u[i] ~ dgamma(1,1)
+    mu[i] <- x[i,] %*% theta_tau
+  }
+  a_tau <- (1-2*tau)/(tau*(1-tau))
+  b_tau <- 2/(tau*(1-tau))
+  # dist's a priori
+  for(j in 1:p){
+    theta_tau[j] ~ dnorm(xi[j], 1/sqrt(omega2)) # xi, omega2 hiperparametros
+  }
+}
+```
+Agora rodaremos o modelo utilizando a função `jags` do pacote `R2jags`.
+
+---
+# Exemplo - Petróleo Brent x PETR4
+
+```{R message=FALSE, warning=FALSE, include=TRUE}
+X <- cbind(1,x); n <- dim(X)[1]; p <- dim(X)[2] # primeira coluna de 1's (intercepto)
+xi <- rep(0, p); It <- 50000; Bi <- 45000; Nt <- 10; colnames(X) <- c('Intercept', 'Brent')
+jags.data <- list(y = y, x = X, n = n, p = p, tau = .5,
+                  xi = xi, omega2 = 10000) #hiperparâmetros
+jags.params <- c("theta_tau")
+jagsfit <- jags(data = jags.data, parameters.to.save = jags.params, DIC = FALSE,
+                n.iter = It, n.burnin = Bi, n.thin = Nt,
+                model.file = "model_reg_quant.txt", quiet = TRUE)
+theta_tau <- jagsfit$BUGSoutput$sims.matrix # sims.matrix junta as cadeias diferentes,
+# theta_tau <- jagsfit$BUGSoutput$sims.array # sims.array deixa separado
+colnames(theta_tau) <- paste('\u03C4=0.5', c('_1','_X'), sep='')
+kableExtra::kbl(round(apply(theta_tau, 2, quantile, probs=c(.025, .5, .975)), 3))
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+
+Replicando o mesmo código para `tau = c(.05, .25, .5, .75, .95)`, obtemos
+```{R message=FALSE, warning=FALSE, include=TRUE}
+theta_tau <- NULL; vtau <- c(.05, .25, .5, .75, .95); theta_lst <- list(); i <- 0
+for (tau in vtau) {
+  jags.data$tau <- tau; i <- i+1
+  jagsfit <- jags(data = jags.data, parameters.to.save = jags.params, DIC = FALSE,
+                  n.iter = It, n.burnin = Bi, n.thin = Nt,
+                  model.file = "model_reg_quant.txt", quiet = TRUE)
+  theta_tau <- cbind(theta_tau, jagsfit$BUGSoutput$sims.matrix)
+  theta_lst[[i]] <- jagsfit$BUGSoutput$sims.matrix
+}
+colnames(theta_tau) <- kronecker(paste('\u03C4=',vtau,sep=''), c('_1','_X'), paste, sep=''); names(theta_lst) <- vtau
+th_res <- round(apply(theta_tau, 2, quantile, probs=c(.025, .5, .975)), 3); kbl(th_res)
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+Coeficientes por quantil.
+
+```{R eval=FALSE, fig.height=4, fig.show="hold", fig.width=6, message=FALSE, warning=FALSE, include=TRUE, out.width="45%"}
+m_1 <- range(th_res[,grep("_1", colnames(th_res))])
+m_X <- range(th_res[,grep("_X", colnames(th_res))])
+plot(vtau, th_res[2,grep("_1", colnames(th_res))], type='b', xlab='\u03C4', ylab='Intercepto', ylim=m_1, pch=19)
+lines(vtau, th_res[1,grep("_1", colnames(th_res))], lty=2)
+lines(vtau, th_res[3,grep("_1", colnames(th_res))], lty=2)
+abline(h = 0, col='red')
+plot(vtau, th_res[2,grep("_X", colnames(th_res))], type='b', xlab='\u03C4', ylab='Brent', ylim=m_X, pch=19)
+lines(vtau, th_res[1,grep("_X", colnames(th_res))], lty=2)
+lines(vtau, th_res[3,grep("_X", colnames(th_res))], lty=2)
+abline(h = 0, col='red')
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+Coeficientes por quantil.
+
+```{R echo=FALSE, fig.height=4, fig.show="hold", fig.width=6, message=FALSE, warning=FALSE, out.width="45%"}
+par(mai = c(1, 1, .1, .1), mgp = c(2, .75, 0))
+m_1 <- range(th_res[,grep("_1", colnames(th_res))]);m_X <- range(th_res[,grep("_X", colnames(th_res))])
+plot(vtau, th_res[2,grep("_1", colnames(th_res))], type='b', xlab='\u03C4', ylab='Intercepto', ylim=m_1, pch=19)
+lines(vtau, th_res[1,grep("_1", colnames(th_res))], lty=2)
+lines(vtau, th_res[3,grep("_1", colnames(th_res))], lty=2)
+abline(h = 0, col='red')
+plot(vtau, th_res[2,grep("_X", colnames(th_res))], type='b', xlab='\u03C4', ylab='Brent', ylim=m_X, pch=19)
+lines(vtau, th_res[1,grep("_X", colnames(th_res))], lty=2)
+lines(vtau, th_res[3,grep("_X", colnames(th_res))], lty=2)
+abline(h = 0, col='red')
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+Como ficam os intervalos quantílicos preditos?
+
+Por exemplo, o Intervalo de 90% pode ser obtido como $[Q_{0.05}(Y|X), Q_{0.95}(Y|X)] = [X'\theta^{(0.05)}, X'\theta^{(0.95)}]$.
+
+Construindo os intervalos:
+```{R echo=TRUE, message=FALSE, warning=FALSE}
+Ns <- nrow(theta_tau); nam_th <- names(theta_lst); pred_lst <- pred_qts <- list(); cum_qts <- NULL; i <- 0
+for (tau in c(0.05, 0.5, 0.95)) {
+  pred <- NULL; i <- i+1
+  for(is in 1:Ns){
+    pred <- rbind(pred, (X %*% (theta_lst[[which(nam_th == tau)]])[is,])[,1])
+  }
+  pred_lst[[i]] <- pred; pred_qts[[i]] <- apply(pred, 2, quantile, probs = c(0.025, 0.5, 0.975))
+  cum_qts <- c(cum_qts, mean(y < pred_qts[[i]][2,]))
+  names(pred_lst)[i] <- names(pred_qts)[i] <- names(cum_qts)[i] <- tau
+}
+cum_qts
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+Plotando os intervalos:
+
+```{R echo=TRUE, message=FALSE, warning=FALSE, fig.height=4, fig.width=6}
+par(mai = c(1, 1, .1, .1), mgp = c(2, .75, 0))
+rg <- range(y, pred_qts);plot.ts(y, ylim = rg, ylab = "PETR4")
+for (i in 1:length(pred_qts)) {
+  lines(x=1:nrow(X), y=(pred_qts[[i]])[2,], col='red')
+  lines(x=1:nrow(X), y=(pred_qts[[i]])[1,], col='red', lty=2)
+  lines(x=1:nrow(X), y=(pred_qts[[i]])[3,], col='red', lty=2)
+}
+```
+
+```{R include=FALSE}
+pred_qts_ord <- pred_qts
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+Vamos agora ajustar o modelo de regressão quantílica dinâmica com o seguinte código JAGS salvo no arquivo `model_reg_quant_din.txt`.
+
+```{R eval=FALSE, include=TRUE}
+model{
+  # verossimilhança
+  for(i in 1:n){
+    y[i] ~ dnorm(mu[i] + a_tau*u[i], 1/sqrt(b_tau*u[i])) # Precision em vez de Var
+    u[i] ~ dgamma(1,1); mu[i] <- x[i,] %*% theta_tau[i,]
+  }
+  a_tau <- (1-2*tau)/(tau*(1-tau)); b_tau <- 2/(tau*(1-tau))
+  # dist's a priori
+  theta_tau[1,1] ~ dnorm(xi[1], 1/sqrt(omega2)) # xi, omega2 hiperparametros
+  for (i in 2:n) theta_tau[i,1] <- theta_tau[i-1,1]
+  }
+  for(j in 2:p){
+    theta_tau[1,j] ~ dnorm(xi[j], 1/sqrt(omega2)) # xi, omega2 hiperparametros
+    for (i in 2:n) theta_tau[i,j] ~ dnorm(theta_tau[i-1,j], 400000) # xi, omega2 hiperparametros
+  }
+}
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+O modelo é ajustado pelo seguinte código.
+```{R echo=TRUE, message=FALSE, warning=FALSE}
+th0 <- theta_lst; theta_tau <- NULL; vtau <- c(.05, .5, .95); theta_lst <- list(); i <- 0
+for (tau in vtau) {
+  jags.data$tau <- tau; i <- i+1; jags.data$xi <- colMeans(th0[[which(nam_th == tau)]])
+  jagsfit <- jags(data = jags.data, parameters.to.save = jags.params, DIC = FALSE,
+                  n.iter = It, n.burnin = Bi, n.thin = Nt,
+                  model.file = "model_reg_quant_din.txt", quiet = TRUE)
+  theta_tau <- cbind(theta_tau, jagsfit$BUGSoutput$sims.matrix)
+  theta_lst[[i]] <- jagsfit$BUGSoutput$sims.matrix
+}
+names(theta_lst) <- vtau
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+O seguinte código computa os quantis dos coeficientes.
+```{R echo=TRUE, message=FALSE, warning=FALSE}
+nS <- nrow(theta_lst[[1]])
+th_arr <- array(dim = c(n, p, length(vtau), Ns))
+for (i in 1:length(vtau)) {
+  for(is in 1:Ns){
+    th_arr[,,i,is] <- matrix(theta_lst[[i]][is,], nrow = n, byrow=FALSE)
+  }
+}
+th_qts <- apply(th_arr, 1:3, quantile, probs=c(0.025, 0.5, 0.975))
+```
+
+Os gráficos são plotados no próximo slide.
+
+---
+# Exemplo - Petróleo Brent x PETR4
+```{R echo=TRUE, message=FALSE, warning=FALSE, fig.height=4, fig.width=6, out.width="45%"}
+par(mai = c(1, 1, .1, .1), mgp = c(2, .75, 0)); cores <- c('red', 'black', 'blue')
+for(j in 1:p){
+  for(i in 1:length(vtau)){
+    rgt <- range(th_qts[,,j,])
+    if(i == 1) plot.ts(t(th_qts[,,j,i])[,2], ylim=rgt, ylab=colnames(X)[j], xlab='Time', col=cores[i]) else lines(1:n, t(th_qts[,,j,i])[,2], col=cores[i])
+    lines(t(th_qts[,,j,i])[,1], lty=2, col=cores[i]); lines(t(th_qts[,,j,i])[,3], lty=2, col=cores[i])
+  }
+}
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+```{R echo=FALSE, fig.height=4, fig.width=6, message=FALSE, warning=FALSE, out.width="45%"}
+par(mai = c(1, 1, .1, .1), mgp = c(2, .75, 0)); cores <- c('red', 'black', 'blue')
+for(j in 1:p){
+  for(i in 1:length(vtau)){
+    rgt <- range(th_qts[,,j,])
+    if(i == 1) plot.ts(t(th_qts[,,j,i])[,2], ylim=rgt, ylab=colnames(X)[j], xlab='Time', col=cores[i]) else lines(1:n, t(th_qts[,,j,i])[,2], col=cores[i])
+    # lines(t(th_qts[,,j,i])[,1], lty=2, col=cores[i]); lines(t(th_qts[,,j,i])[,3], lty=2, col=cores[i])
+  }
+}
+```
+
+
+---
+# Exemplo - Petróleo Brent x PETR4
+A seguir são computadas as frequências acumuladas empíricas.
+```{R echo=TRUE, message=FALSE, warning=FALSE}
+Ns <- nrow(theta_lst[[1]]); nam_th <- names(theta_lst); pred_lst <- pred_qts <- list(); cum_qts <- NULL; i <- 0
+for (tau in c(0.05, 0.5, 0.95)) {
+  pred <- NULL; i <- i+1
+  for(is in 1:Ns){
+    th_mat <- matrix(theta_lst[[which(nam_th == tau)]][is,], nrow = length(y), byrow=FALSE)
+    pred <- rbind(pred, rowSums(X * th_mat))
+  }
+  pred_lst[[i]] <- pred; pred_qts[[i]] <- apply(pred, 2, quantile, probs = c(0.025, 0.5, 0.975))
+  cum_qts <- c(cum_qts, mean(y < pred_qts[[i]][2,]))
+  names(pred_lst)[i] <- names(pred_qts)[i] <- names(cum_qts)[i] <- tau
+}
+cum_qts
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+Por fim, introduzimos os intervalos de previsão quantílicos.
+```{R echo=TRUE, message=FALSE, warning=FALSE, fig.height=4, fig.width=6}
+par(mai = c(1, 1, .1, .1), mgp = c(2, .75, 0))
+rg <- range(y, pred_qts);plot.ts(y, ylim = rg, ylab = "PETR4")
+for (i in 1:length(pred_qts)) {
+  lines(x=1:nrow(X), y=(pred_qts[[i]])[2,], col='red')
+  lines(x=1:nrow(X), y=(pred_qts[[i]])[1,], col='red', lty=2)
+  lines(x=1:nrow(X), y=(pred_qts[[i]])[3,], col='red', lty=2)
+}
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+Comparação entre os gráficos das regressões quantílicas ordinal e dinâmica.
+
+```{R echo=FALSE, fig.show="hold", fig.height=4, fig.width=6, message=FALSE, warning=FALSE, out.width="45%"}
+par(mai = c(1, 1, .1, .1), mgp = c(2, .75, 0))
+rg <- range(y, pred_qts_ord);plot.ts(y, ylim = rg, ylab = "PETR4")
+for (i in 1:length(pred_qts_ord)) {
+  lines(x=1:nrow(X), y=(pred_qts_ord[[i]])[2,], col='red')
+  lines(x=1:nrow(X), y=(pred_qts_ord[[i]])[1,], col='red', lty=2)
+  lines(x=1:nrow(X), y=(pred_qts_ord[[i]])[3,], col='red', lty=2)
+}
+rg <- range(y, pred_qts);plot.ts(y, ylim = rg, ylab = "PETR4")
+for (i in 1:length(pred_qts)) {
+  lines(x=1:nrow(X), y=(pred_qts[[i]])[2,], col='red')
+  lines(x=1:nrow(X), y=(pred_qts[[i]])[1,], col='red', lty=2)
+  lines(x=1:nrow(X), y=(pred_qts[[i]])[3,], col='red', lty=2)
+}
+```
+
+---
+# Exemplo - Petróleo Brent x PETR4
+Comparação entre os gráficos das regressões quantílicas ordinal e dinâmica.
+
+```{R echo=FALSE, fig.height=4, fig.show="hold", fig.width=6, message=FALSE, warning=FALSE, out.width="45%"}
+par(mai = c(1, 1, .1, .1), mgp = c(2, .75, 0))
+rg <- range(y, pred_qts_ord);plot.ts(y, ylim = rg, ylab = "PETR4")
+for (i in 1:length(pred_qts_ord)) {
+  lines(x=1:nrow(X), y=(pred_qts_ord[[i]])[2,], col='red')
+  # lines(x=1:nrow(X), y=(pred_qts_ord[[i]])[1,], col='red', lty=2)
+  # lines(x=1:nrow(X), y=(pred_qts_ord[[i]])[3,], col='red', lty=2)
+}
+rg <- range(y, pred_qts);plot.ts(y, ylim = rg, ylab = "PETR4")
+for (i in 1:length(pred_qts)) {
+  lines(x=1:nrow(X), y=(pred_qts[[i]])[2,], col='red')
+  # lines(x=1:nrow(X), y=(pred_qts[[i]])[1,], col='red', lty=2)
+  # lines(x=1:nrow(X), y=(pred_qts[[i]])[3,], col='red', lty=2)
+}
+```
+
+---
+class: middle, center, inverse
+
+# FIM
+## Perguntas?
+
+---
+# Referências
+
+```{r refs1, echo=FALSE, results="asis"}
+PrintBibliography(myBib, .opts = list(check.entries = FALSE))
+```
+
