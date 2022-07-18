@@ -290,7 +290,7 @@ Considere os dados de Barril de Petróleo Brent (Fechamento) e Petr4 (Abertura).
 
 ```{R, out.width = '80%'}
 df <- read.csv(file = 'dados.csv', header = T, dec = ',')
-DT::datatable(df, rownames = FALSE, options = list(pageLength = 5, autoWidth = TRUE, lengthChange = FALSE, searching=FALSE))
+DT::datatable(df, rownames = FALSE, options = list(pageLength = 5, autoWidth = FALSE, lengthChange = FALSE, searching=FALSE))
 ```
 
 ---
