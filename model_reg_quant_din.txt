@@ -1,19 +1,19 @@
 model{
   # verossimilhança
   for(i in 1:n){
-    y[i] ~ dnorm(mu[i] + a_tau*u[i], 1/sqrt(b_tau*u[i])) # Precision em vez de Var
+    y[i] ~ dnorm(mu[i] + a_tau*u[i], 1/(b_tau*u[i])) # Precision em vez de Var
     u[i] ~ dgamma(1,1)
     mu[i] <- x[i,] %*% theta_tau[i,]
   }
   a_tau <- (1-2*tau)/(tau*(1-tau))
   b_tau <- 2/(tau*(1-tau))
   # dist's a priori
-  theta_tau[1,1] ~ dnorm(xi[1], 1/sqrt(omega2)) # xi, omega2 hiperparametros
+  theta_tau[1,1] ~ dnorm(xi[1], 1/(omega2)) # xi, omega2 hiperparametros
   for (i in 2:n) {
     theta_tau[i,1] <- theta_tau[i-1,1]
   }
   for(j in 2:p){
-    theta_tau[1,j] ~ dnorm(xi[j], 1/sqrt(omega2)) # xi, omega2 hiperparametros
+    theta_tau[1,j] ~ dnorm(xi[j], 1/(omega2)) # xi, omega2 hiperparametros
     for (i in 2:n) {
       theta_tau[i,j] ~ dnorm(theta_tau[i-1,j], 400000) # xi, omega2 hiperparametros
     }
