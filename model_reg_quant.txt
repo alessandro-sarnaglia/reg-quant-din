@@ -1,15 +1,14 @@
 model {
-# verossimilhança
-for(i in 1:n){
-  y[i] ~ dnorm(mu[i] + a_tau*u[i], 1/(b_tau*u[i])) # DP em vez de Var
-  u[i] ~ dgamma(1,1)
-  mu[i] <- x[i,] %*% theta_tau
+  # verossimilhança
+  for(i in 1:n){
+    y[i] ~ dnorm(mu[i] + a_tau*u[i], 1/(b_tau*u[i])) # Precisão em vez de Var
+    u[i] ~ dexp(1)
+    mu[i] <- x[i,] %*% theta_tau
+  }
+  a_tau <- (1-2*tau)/(tau*(1-tau))
+  b_tau <- 2/(tau*(1-tau))
+  # dist's a priori
+  for(j in 1:p){
+    theta_tau[j] ~ dnorm(xi[j], 1/(omega2))
+  }
 }
-a_tau <- (1-2*tau)/(tau*(1-tau))
-b_tau <- 2/(tau*(1-tau))
-# dist's a priori
-for(j in 1:p){
-  theta_tau[j] ~ dnorm(xi[j], 1/(omega2))
-}
-}
-

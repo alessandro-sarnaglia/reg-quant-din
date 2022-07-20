@@ -58,7 +58,7 @@ MathJax.Hub.Config({
 
 - Verossimilhança: $f(\xx | \theta) = f(x_1, \ldots, x_n | \theta)$ vista como função de $\theta$.
 
-**Frequentista:** em geral, máxima verossimilhança, isto é $\hat\theta = \ag_\theta f(\xx | \theta)$. Comumente, fazemos:
+**Frequentista:** em geral, máxima verossimilhança, isto é, $\hat\theta = \ag_\theta f(\xx | \theta)$. Comumente, fazemos:
 $$
 \left. \frac{\partial}{\partial \theta} f(\xx | \theta) \right|_{\theta = \hat\theta} = 0.
 $$
@@ -114,10 +114,10 @@ $$
 model{
   # verossimilhanca
   for(i in 1:n){
-    x[i] ~ dnorm(mu, 1/sqrt(sig2)) # a parametrizacao é em funcao da precisão (1/DP)
+    x[i] ~ dnorm(mu, 1/sig2) # a parametrizacao é em funcao da precisão (= 1/Var)
   }
   # dist.'s a priori
-  mu ~ dnorm(xi, 1/sqrt(omega2)) # xi, omega2 hiperparametros
+  mu ~ dnorm(xi, 1/omega2) # xi, omega2 hiperparametros
   sig2 ~ dgamma(alpha, beta) # alpha, beta hiperparametros
 }
 ```
@@ -127,18 +127,18 @@ model{
 
 Exemplo de código em JAGS para o seguinte modelo de regressão:
 
-$$Y_i|\theta,\sigma^2 \sim N(\mu_i,\sigma^2), \ \mu_i = X_i'\theta, \ X_i = (X_{i1}, \ldots, X_{ip})', \ i=1, \ldots, n;$$
+$$Y_i|X_i,\theta,\sigma^2 \sim N(\mu_i,\sigma^2), \ \mu_i = X_i'\theta, \ X_i = (X_{i1}, \ldots, X_{ip})', \ i=1, \ldots, n;$$
 $$\theta = (\theta_1, \ldots, \theta_p)' \sim N_p(\xi,\text{diag}(\omega^2)); \ \sigma^2 \sim G(\alpha,\beta).$$
 ```{R eval=FALSE, include=TRUE}
 model{
   # verossimilhanca
   for(i in 1:n){
-    y[i] ~ dnorm(mu[i], 1/sqrt(sig2)) # a parametrizacao é em funcao da precisão
+    y[i] ~ dnorm(mu[i], 1/sig2) # em funcao da precisão (= 1/Var)
     mu[i] <- t(theta) %*% x[i,] # repare que em vez de ~ usamos <-
   }
   # dist.'s a priori
   for(j in 1:p){
-    theta[j] ~ dnorm(xi[j], 1/sqrt(omega2)) # xi, omega2 hiperparametros
+    theta[j] ~ dnorm(xi[j], 1/omega2) # xi, omega2 hiperparametros
   }
   sig2 ~ dgamma(alpha, beta) # alpha, beta hiperparametros
 }
@@ -178,15 +178,13 @@ Vamos coletar altura (explicativa) e peso (resposta). Vamos usar o JAGS para imp
 ---
 # Regressão Quantílica - I
 
-O quantil de ordem $\tau$ de uma variável aleatória $Y$ com função de distribuição acumulada $F(y) = P(Y \leq y)$ é definida como
+O quantil de ordem $\tau$ de uma variável aleatória $Y$, com função de distribuição acumulada $F(y) = P(Y \leq y)$, é definida como
 $$Q_\tau(Y) = F^{-1}(\tau) = \inf\{y|F(y) \geq \tau\}.$$
-Em regressão quantílica, em vez do modelo $E(Y_i|X_i, \theta) = X_i'\theta$, é considerado
-$$Q_\tau(Y_i|X_i, \theta) = X_i'\theta^{(\tau)},\ 0 < \tau < 1,$$
-onde  $\theta^{(\tau)} = (\theta^{(\tau)}_1, \ldots, \theta^{(\tau)}_p)'$ é um vetor de coeficientes que depende de $\tau$.
+Em regressão quantílica, em vez de considerarmos $E(Y_i|X_i, \theta) = X_i'\theta$, fazemos
+$$Q_\tau(Y_i|X_i, \theta) = X_i'\theta^{(\tau)},\ \ 0 < \tau < 1,\ \ \theta^{(\tau)} = (\theta^{(\tau)}_1, \ldots, \theta^{(\tau)}_p)'.$$
+Considere a função perda $\rho_\tau (u) = u(\tau - \mathbb{I}(u < 0))$. O valor $\hat{q}$ que minimiza a perda esperada $E[\rho_\tau (Y - q)] = \int \rho_\tau (Y - q) f_Y(y)dy$, como funçao de $q$, satisfaz $F(\hat{q}) = \tau$, ou ainda $\hat{q} = Q_\tau(Y)$ `r Citep(myBib, "koenker:2005")`. Similarmente, o quantil amostral $\hat{q}$ é o mínimo da perda média amostral $\frac{1}{n}\sum_{i=1}^n(\rho_\tau (Y_i - q))$.
 
-Considere a função perda $\rho_\tau (u) = u(\tau - \mathbb{I}(u < 0))$. `r Citet(myBib, "koenker:2005")` mostrou que o valor que minimiza a perda esperada $E_F(\rho_\tau (Y - q)$ satisfaz $F(q) = \tau$, ou ainda $q = Q_\tau(Y)$.
-
-De maneira similar, o quantil amostral $\hat{q}$ é obtido minimizando-se a perda média $\frac{1}{n}\sum_{i=1}^n(\rho_\tau (Y_i - \hat{q}))$. Assim, a regressão quantílica é estimada pela solução do seguinte problema de minimização
+Assim, no contexto frequentista, a regressão quantílica é estimada pela solução do seguinte problema de minimização
 $$\textstyle\hat\theta^{(\tau)} = \text{arg}\min_\theta \left[\frac{1}{n}\sum_{i = 1}^n \rho_\tau(y_i - X_i'\theta)\right].$$
 ---
 # Regressão Quantílica - II
@@ -194,26 +192,25 @@ $$\textstyle\hat\theta^{(\tau)} = \text{arg}\min_\theta \left[\frac{1}{n}\sum_{i
 
 Dizemos que $Z$ tem distribuição Laplace assimétrica com parâmetro $\tau$ se sua densidade é dada por
 $$f_Z(z) = \tau(1-\tau)\exp\{-\rho_\tau(z)\}.$$
-Nesse caso, escrevemos $Z \sim LA(\tau)$. Parâmetros de locação $\mu$ e escala $\sigma$ podem ser introduzidos fazendo $Z = \frac{Y-\mu}{\sigma}$, de modo que $f_Y(y) = \frac{1}{\sigma}f_Z(\frac{y-\mu}{\sigma})$. Nesse caso, escrevemos $Y \sim LA(\mu,\sigma,\tau)$.
+Nesse caso, escrevemos $Z \sim LA(\tau)$. Parâmetros de locação $\mu$ e escala $\sigma$ podem ser introduzidos fazendo $Y = \mu + \sigma Y$, de modo que $f_Y(y) = \frac{1}{\sigma}f_Z(\frac{y-\mu}{\sigma})$. Nesse caso, escrevemos $Y \sim LA(\mu,\sigma,\tau)$.
 
 Assim, no contexto Bayesiano, o modelo de regressão quantílica pode ser especificado como
 $$Y_i|X_i,\theta^{(\tau)} \sim LA(\mu = X_i'\theta^{(\tau)}, \sigma = 1, \tau = \tau),\ \ \theta^{(\tau)} \sim \pi(\cdot).$$
-**Problema:** a implementação em JAGS não é direta por não se ter a distribuição Laplace Assimétrica implementada.
+**Problema:** a implementação em JAGS não é direta por não se ter a distribuição Laplace Assimétrica disponibilizada nativamente.
 
 Felizmente, a seguinte propriedade permite contornar esse problema.
 
 ---
 # Regressão Quantílica - III
 
-**Propriedade:** `r Citep(myBib, "kotz:2001")` é possível mostrar que, se $Y|\mu,\sigma \sim LA(\mu, \sigma, \tau)$, então podemos escrever hierarquicamente:
-$$Y|U,\mu,\sigma \sim N(\mu + a_\tau U, b_\tau \sigma U)\ \ \text{e}\ \ U|\sigma \sim G(1, \sigma),$$
-onde $a_\tau = \frac{1-2\tau}{\tau(1-\tau)}$ e $b_\tau = \frac{2}{\tau(1-\tau)}$, e $G(\alpha, \beta)$ denota a densidade gama com esperança $\frac{\alpha}{\beta}$ e variância $\frac{\alpha}{\beta^2}$.
+**Propriedade:** `r Citep(myBib, "kotz:2001", after = ", Proposição 3.2.1")` é possível mostrar que, se $Y|\mu,\sigma \sim LA(\mu, \sigma, \tau)$, então podemos escrever hierarquicamente:
+$$Y|U,\mu,\sigma \sim N(\mu + a_\tau U, \sigma^2 b_\tau U)\ \ \text{e}\ \ U \sim Exp(1),$$
+onde $a_\tau = \frac{1-2\tau}{\tau(1-\tau)}$ e $b_\tau = \frac{2}{\tau(1-\tau)}$, e $U \sim Exp(1)$ denota que $U$ segue distribuição exponencial padrão com densidade $f_U(u) = e^{-u}$, $u>0$.
 
 Assim, o modelo de regressão quantílica ficaria totalmente especificado com a seguinte estrutura hierárquica:
-
-$$Y_i|U_i,\mu_i \sim N(\mu_i + a_\tau U_i, b_\tau U_i), \ \ \mu_i = X_i'\theta^{(\tau)},$$
-$$U_i \sim G(1, 1) \ \ \text{e} \ \ \theta^{(\tau)} \sim \pi(\cdot).$$
-Uma escolha natural para a $\pi(\cdot)$ é dada pela distribuição $N_p$.
+$$Y_i|U_i, X_i, \theta^{(\tau)} \sim N(\mu_i + a_\tau U_i, b_\tau U_i), \ \ \mu_i = X_i'\theta^{(\tau)},$$
+$$U_i \sim Exp(1) \ \ \text{e} \ \ \theta^{(\tau)} \sim \pi(\cdot).$$
+Uma escolha natural para a distribuição *a priori* $\pi(\cdot)$ é dada pela distribuição $N_p$.
 
 ---
 # Regressão Quantílica - IV
@@ -221,22 +218,22 @@ Uma escolha natural para a $\pi(\cdot)$ é dada pela distribuição $N_p$.
 O código JAGS abaixo define o modelo de regressão quantílica.
 
 ```{R eval=FALSE, include=TRUE}
-model{
+model {
   # verossimilhança
   for(i in 1:n){
-    y[i] ~ dnorm(mu[i] + a_tau*u[i], 1/sqrt(b_tau*u[i])) # DP em vez de Var
-    u[i] ~ dgamma(1,1)
+    y[i] ~ dnorm(mu[i] + a_tau*u[i], 1/(b_tau*u[i])) # Precisão em vez de Var
+    u[i] ~ dexp(1)
     mu[i] <- x[i,] %*% theta_tau
   }
   a_tau <- (1-2*tau)/(tau*(1-tau))
   b_tau <- 2/(tau*(1-tau))
   # dist's a priori
   for(j in 1:p){
-    theta_tau[j] ~ dnorm(xi[j], 1/sqrt(omega2)) # xi, omega2 hiperparametros
+    theta_tau[j] ~ dnorm(xi[j], 1/(omega2))
   }
 }
 ```
-Os objetos `n`, `p`, `tau`, `xi` e `omega2` devem ser fornecidos pelo parâmetro `data` da função `jags`.
+Os objetos `n`, `p`, `tau`, `xi` e `omega2` devem ser fornecidos pelo argumento `data` da função `jags`.
 
 ---
 class: middle, center
@@ -255,29 +252,29 @@ Se os dados $Y_t$ e $X_t$ são observados em função do tempo $t$. É provável
 **Solução:**
 - Permitir que os coeficientes evoluam com o tempo, isto é, que $\theta^{(\tau)}_t$.
 - Mecanismo de evolução de $\theta^{(\tau)}_t$ dado por
-$$\theta^{(\tau)}_t|\theta^{(\tau)}_{t-1},G_t,W_t \sim N_p(G_t\theta^{(\tau)}_{t-1}, W_t),$$
-em que $G_t$ é uma matriz $p\times p$ descrevendo os parâmetros de evolução e $W_t$ é uma matriz de covariâncias.
+$$\theta^{(\tau)}_t|\theta^{(\tau)}_{t-1},G_t,W_t \sim N_p(G_t\theta^{(\tau)}_{t-1}, W_t), \ \ \theta^{(\tau)}_{1} \sim N_p(\xi, \Omega),$$
+em que $G_t$ é a matriz $p\times p$ com os parâmetros de evolução e $W_t$ é uma matriz de covariâncias que descrevem a equação de evolução e $\xi$ e $\Omega$ são, respectivamente, o vetor de médias e a matriz de covariâncias do vetor de coeficientes da primeira observação.
 
 Para maiores detalhes sobre a descrição do modelo, veja `r Citet(myBib, "goncalves:2020")`.
 
 ---
 # Regressão Quantílica Dinâmica - II
-Código JAGS:
+Código JAGS para $G_t = \mathbf{I}_p$, $W_t = \text{diag}(\frac{1}{40000})$ e $\Omega = \text{diag}(\omega^2)$:
 ```{R eval=FALSE, include=TRUE}
-model{
+model {
   # verossimilhança
   for(i in 1:n){
-    y[i] ~ dnorm(mu[i] + a_tau*u[i], 1/sqrt(b_tau*u[i])) # Precision em vez de Var
-    u[i] ~ dgamma(1,1)
+    y[i] ~ dnorm(mu[i] + a_tau*u[i], 1/(b_tau*u[i])) # Precisão em vez de Var
+    u[i] ~ dexp(1)
     mu[i] <- x[i,] %*% theta_tau[i,]
   }
   a_tau <- (1-2*tau)/(tau*(1-tau))
   b_tau <- 2/(tau*(1-tau))
   # dist's a priori
   for(j in 1:p){
-    theta_tau[1,j] ~ dnorm(xi[j], 1/sqrt(omega2)) # xi, omega2 hiperparametros
+    theta_tau[1,j] ~ dnorm(xi[j], 1/(omega2)) # xi, omega2 hiperparametros
     for (i in 2:n) {
-      theta_tau[i,j] ~ dnorm(theta_tau[i-1,j], 1600) # xi, omega2 hiperparametros
+      theta_tau[i,j] ~ dnorm(theta_tau[i-1,j], 40000)
     }
   }
 }
@@ -320,18 +317,18 @@ plot(x, y, pch=19, xlab='Brent', ylab='PETR4');cat('Correlação: ',cor(x,y),sep
 Iniciemos com uma regressão quantílica usual. O seguinte modelo `JAGS` foi escrito no arquivo `model_reg_quant.txt`.
 
 ```{R eval=FALSE, include=TRUE}
-model{
+model {
   # verossimilhança
   for(i in 1:n){
-    y[i] ~ dnorm(mu[i] + a_tau*u[i], 1/sqrt(b_tau*u[i])) # DP em vez de Var
-    u[i] ~ dgamma(1,1)
+    y[i] ~ dnorm(mu[i] + a_tau*u[i], 1/(b_tau*u[i])) # Precisão em vez de Var
+    u[i] ~ dexp(1)
     mu[i] <- x[i,] %*% theta_tau
   }
   a_tau <- (1-2*tau)/(tau*(1-tau))
   b_tau <- 2/(tau*(1-tau))
   # dist's a priori
   for(j in 1:p){
-    theta_tau[j] ~ dnorm(xi[j], 1/sqrt(omega2)) # xi, omega2 hiperparametros
+    theta_tau[j] ~ dnorm(xi[j], 1/(omega2))
   }
 }
 ```
@@ -342,7 +339,7 @@ Agora rodaremos o modelo utilizando a função `jags` do pacote `R2jags`.
 
 ```{R message=FALSE, warning=FALSE, include=TRUE}
 X <- cbind(1,x); n <- dim(X)[1]; p <- dim(X)[2] # primeira coluna de 1's (intercepto)
-xi <- rep(0, p); It <- 50000; Bi <- 45000; Nt <- 10; colnames(X) <- c('Intercept', 'Brent')
+xi <- rep(0, p); It <- 50000; Bi <- 49000; Nt <- 10; colnames(X) <- c('Intercept', 'Brent')
 jags.data <- list(y = y, x = X, n = n, p = p, tau = .5,
                   xi = xi, omega2 = 10000) #hiperparâmetros
 jags.params <- c("theta_tau")
@@ -448,23 +445,22 @@ pred_qts_ord <- pred_qts
 
 ---
 # Exemplo - Petróleo Brent x PETR4
-Vamos agora ajustar o modelo de regressão quantílica dinâmica com o seguinte código JAGS salvo no arquivo `model_reg_quant_din.txt`.
+Vamos agora ajustar o modelo de regressão quantílica dinâmica com o seguinte código JAGS salvo no arquivo `model_reg_quant_din.txt`. Coeficiente do intercepto fixo e precisão da equação de evolução foi fixada em 40000 para garantir que $P(-0.01 < \theta_{t, \text{Brent}}^{(\tau)} - \theta_{t-1,\text{Brent}}^{(\tau)} < 0.01) \approx 0.95$.
 
 ```{R eval=FALSE, include=TRUE}
-model{
+model {
   # verossimilhança
   for(i in 1:n){
-    y[i] ~ dnorm(mu[i] + a_tau*u[i], 1/sqrt(b_tau*u[i])) # Precision em vez de Var
-    u[i] ~ dgamma(1,1); mu[i] <- x[i,] %*% theta_tau[i,]
+    y[i] ~ dnorm(mu[i] + a_tau*u[i], 1/(b_tau*u[i])) # Precisão em vez de Var
+    u[i] ~ dexp(1); mu[i] <- x[i,] %*% theta_tau[i,]
   }
   a_tau <- (1-2*tau)/(tau*(1-tau)); b_tau <- 2/(tau*(1-tau))
   # dist's a priori
-  theta_tau[1,1] ~ dnorm(xi[1], 1/sqrt(omega2)) # xi, omega2 hiperparametros
-  for (i in 2:n) theta_tau[i,1] <- theta_tau[i-1,1]
-  }
+  theta_tau[1,1] ~ dnorm(xi[1], 1/(omega2)) # xi, omega2 hiperparametros
+  for (i in 2:n){theta_tau[i,1] <- theta_tau[i-1,1]}
   for(j in 2:p){
-    theta_tau[1,j] ~ dnorm(xi[j], 1/sqrt(omega2)) # xi, omega2 hiperparametros
-    for (i in 2:n) theta_tau[i,j] ~ dnorm(theta_tau[i-1,j], 400000) # xi, omega2 hiperparametros
+    theta_tau[1,j] ~ dnorm(xi[j], 1/(omega2)) # xi, omega2 hiperparametros
+    for (i in 2:n){theta_tau[i,j] ~ dnorm(theta_tau[i-1,j], 40000)}
   }
 }
 ```
